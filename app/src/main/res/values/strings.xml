@@ -1,0 +1,26 @@
+<resources>
+    <string name="app_name">TimeHUD_cloud</string>
+    <string name="channel_name">TimeHUD Overlay</string>
+    <string name="channel_description">Keeps the screen-time overlay running</string>
+    <string name="notif_title">TimeHUD is active</string>
+    <string name="notif_text">Tracking your screen time</string>
+    <string name="goal_backup_title">Goal Backup</string>
+    <string name="goal_backup_description">Save or replace goal lists using a local JSON file.</string>
+    <string name="goal_backup_export">Export Goals</string>
+    <string name="goal_backup_import">Import Goals</string>
+    <string name="goal_backup_filename">timehud-goals-backup.json</string>
+    <string name="goal_backup_exporting">Saving goal backup…</string>
+    <string name="goal_backup_reading">Reading goal backup…</string>
+    <string name="goal_backup_export_success">Goals exported successfully.</string>
+    <string name="goal_backup_import_success">Goals imported successfully.</string>
+    <string name="goal_backup_invalid">This file is not a valid TimeHUD goal backup.</string>
+    <string name="goal_backup_unsupported">This backup was created by an unsupported version of TimeHUD.</string>
+    <string name="goal_backup_read_failure">The selected file could not be read.</string>
+    <string name="goal_backup_write_failure">The backup could not be saved.</string>
+    <string name="goal_backup_confirm_title">Replace saved goals?</string>
+    <string name="goal_backup_short_count">Short-term goals: %1$d</string>
+    <string name="goal_backup_long_count">Long-term goals: %1$d</string>
+    <string name="goal_backup_replace_warning">This import will replace the currently saved goals.</string>
+    <string name="goal_backup_replace">Replace Goals</string>
+    <string name="goal_backup_cancel">Cancel</string>
+</resources>

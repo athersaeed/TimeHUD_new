@@ -1,0 +1,36 @@
+# Gradle caches and generated files
+.gradle/
+.gradle-work/
+**/build/
+
+# Kotlin
+.kotlin/
+
+# Android Studio
+.idea/
+*.iml
+captures/
+
+# Local Android SDK configuration
+local.properties
+
+# Native build files
+.externalNativeBuild/
+.cxx/
+
+# Java/Kotlin output
+out/
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Signing files and local secrets
+*.jks
+*.keystore
+keystore.properties

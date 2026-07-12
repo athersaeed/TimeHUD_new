@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#EE05050A">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingLeft="24dp"
+        android:paddingTop="32dp"
+        android:paddingRight="24dp"
+        android:paddingBottom="28dp">
+
+        <Button
+            android:id="@+id/btn_close_active"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:layout_gravity="end"
+            android:backgroundTint="#44444F"
+            android:enabled="false"
+            android:minWidth="112dp"
+            android:text="Close in 5s"
+            android:textAllCaps="false"
+            android:textColor="#FFAAAAAA"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tv_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="10dp"
+            android:fontFamily="monospace"
+            android:shadowColor="#FF000000"
+            android:shadowDx="0"
+            android:shadowDy="0"
+            android:shadowRadius="8"
+            android:text="0h0m"
+            android:textColor="#FF00FF88"
+            android:textSize="74sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/layout_calendar_agenda"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:background="#221A1D2E"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tv_calendar_agenda_header"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Today's agenda"
+                android:textColor="#FFB8C7FF"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_calendar_agenda"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:lineSpacingExtra="4dp"
+                android:maxLines="6"
+                android:textColor="#FFECEEFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tv_goal_mode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Short term goals"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Check in before continuing"
+                    android:textColor="#FF9AA0B8"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <Switch
+                android:id="@+id/switch_goal_mode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Long"
+                android:textColor="#FFB8C7FF"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="16dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:id="@+id/layout_goal_tasks"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#221A1D2E"
+                android:orientation="vertical"
+                android:padding="12dp" />
+        </ScrollView>
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/layout_celebration"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"
+        android:visibility="gone">
+
+        <FrameLayout
+            android:id="@+id/layout_celebration_dots"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <TextView
+            android:id="@+id/tv_celebration_banner"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal|top"
+            android:layout_marginTop="120dp"
+            android:background="#DD123824"
+            android:paddingLeft="18dp"
+            android:paddingTop="10dp"
+            android:paddingRight="18dp"
+            android:paddingBottom="10dp"
+            android:text="Nice work"
+            android:textColor="#FFFFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/layout_completion_modal"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#BB000000"
+        android:clickable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginLeft="28dp"
+            android:layout_marginRight="28dp"
+            android:background="#FF17172A"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:id="@+id/tv_completion_prompt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Mark this task complete?"
+                android:textColor="#FFFFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_completion_task"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="#FFB8C7FF"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btn_done_today"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:layout_marginTop="18dp"
+                android:backgroundTint="#FF2E8B57"
+                android:text="Done for today"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFFFF" />
+
+            <Button
+                android:id="@+id/btn_remove_goal"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:layout_marginTop="10dp"
+                android:backgroundTint="#FF5C2A36"
+                android:text="Remove from goals"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFFFF" />
+
+            <Button
+                android:id="@+id/btn_cancel_completion"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="10dp"
+                android:backgroundTint="#FF3A3A4E"
+                android:text="Cancel"
+                android:textAllCaps="false"
+                android:textColor="#FFECEEFF" />
+        </LinearLayout>
+    </FrameLayout>
+</FrameLayout>
