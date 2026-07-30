@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">TimeHUD_cloud</string>
+    <string name="app_name">TimeHUD</string>
     <string name="channel_name">TimeHUD Overlay</string>
     <string name="channel_description">Keeps the screen-time overlay running</string>
     <string name="notif_title">TimeHUD is active</string>

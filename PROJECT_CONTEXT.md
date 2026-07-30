@@ -8,7 +8,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 
 ### Identity and purpose
 
-- The Gradle project name is **TimeHUD** (`settings.gradle.kts:25`), the launcher label is **TimeHUD_cloud** (`app/src/main/res/values/strings.xml:2`), and the on-screen title is **TimeHUD** (`app/src/main/java/com/boringutils/timehud/MainActivity.kt`).
+- The Gradle project name, launcher label, and on-screen title are all **TimeHUD** (`settings.gradle.kts:25`, `app/src/main/res/values/strings.xml:2`, `app/src/main/java/com/boringutils/timehud/MainActivity.kt`).
 - TimeHUD is a native Android focus/accountability utility. It measures how long the device screen has been interactive since a 3:00 AM daily boundary, displays the total in a small always-on-top HUD, and periodically replaces it with a full-screen goal check-in (`OverlayService.kt:519-602`).
 - The likely target user is someone who wants persistent awareness of screen time and repeated reminders of daily and longer-term goals. This is a reasonable inference from the default goals and UI copy, not an explicitly documented market definition (`GoalSettings.kt:28-34`, `overlay_active.xml:88-103`).
 - The main problem it addresses is that ordinary screen-time information is easy to ignore. TimeHUD keeps the total visible over other apps and interrupts at five-minute usage buckets with goals and an optional calendar agenda.
@@ -41,7 +41,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 
 ### Incomplete, absent, or only implied functionality
 
-- There is no custom backend, cloud sync, account system, or network client despite the `TimeHUD_cloud` label. The application ID is `com.boringutils.timehud`, and the manifest does not request `INTERNET`.
+- There is no custom backend, cloud sync, account system, or network client. The application ID is `com.boringutils.timehud`, and the manifest does not request `INTERNET`.
 - There are no explicit planned-feature documents, roadmap, or application TODOs. The only TODO found is template text in `data_extraction_rules.xml:8`; it is not evidence of a planned user feature.
 - Notification permission is declared but never requested at runtime.
 - A production signing setup, store metadata, release automation, privacy documentation, analytics, and crash reporting are absent.
