@@ -34,6 +34,11 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
 import java.util.Calendar
 
+internal enum class ActiveOverlayTrigger(val requiresCloseDelay: Boolean) {
+    BUBBLE_TAP(requiresCloseDelay = false),
+    FIVE_MINUTE_BUCKET(requiresCloseDelay = true)
+}
+
 class OverlayService : Service() {
 
     companion object {
@@ -185,7 +190,10 @@ class OverlayService : Service() {
         var isDragging = false
 
         view.setOnClickListener {
-            showActiveOverlay(getFormattedScreenTime())
+            showActiveOverlay(
+                timeText = getFormattedScreenTime(),
+                trigger = ActiveOverlayTrigger.BUBBLE_TAP
+            )
         }
         view.setOnTouchListener { _, event ->
             when (event.actionMasked) {
@@ -268,9 +276,10 @@ class OverlayService : Service() {
         }
     }
 
-    private fun showActiveOverlay(timeText: String) {
+    private fun showActiveOverlay(timeText: String, trigger: ActiveOverlayTrigger) {
         if (isActiveState) return
         isActiveState = true
+        handler.removeCallbacks(enableActiveCloseRunnable)
 
         removeOverlay(passiveView)
         passiveView = null
@@ -289,12 +298,7 @@ class OverlayService : Service() {
                 updateActiveGoals(view)
             }
             view.findViewById<Button>(R.id.btn_close_active)?.apply {
-                isEnabled = false
-                text = "Close in 5s"
-                setTextColor(0xFFAAAAAA.toInt())
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    backgroundTintList = ColorStateList.valueOf(0xFF44444F.toInt())
-                }
+                configureActiveCloseButton(this, enabled = !trigger.requiresCloseDelay)
                 setOnClickListener {
                     dismissActiveOverlay()
                 }
@@ -318,18 +322,26 @@ class OverlayService : Service() {
         )
         windowManager.addView(activeView, params)
 
-        handler.postDelayed(enableActiveCloseRunnable, ACTIVE_CLOSE_DELAY_MS)
+        if (trigger.requiresCloseDelay) {
+            handler.postDelayed(enableActiveCloseRunnable, ACTIVE_CLOSE_DELAY_MS)
+        }
     }
 
     private val enableActiveCloseRunnable = Runnable {
-        activeView?.findViewById<Button>(R.id.btn_close_active)?.apply {
-            isEnabled = true
-            text = "Close"
-            setTextColor(0xFFFFFFFF.toInt())
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                backgroundTintList = ColorStateList.valueOf(0xFF4488FF.toInt())
-            }
+        activeView?.findViewById<Button>(R.id.btn_close_active)?.let {
+            configureActiveCloseButton(it, enabled = true)
         }
+    }
+
+    private fun configureActiveCloseButton(button: Button, enabled: Boolean) {
+        button.isEnabled = enabled
+        button.text = getString(
+            if (enabled) R.string.active_close else R.string.active_close_delayed
+        )
+        button.setTextColor(if (enabled) 0xFFFFFFFF.toInt() else 0xFFAAAAAA.toInt())
+        button.backgroundTintList = ColorStateList.valueOf(
+            if (enabled) 0xFF4488FF.toInt() else 0xFF44444F.toInt()
+        )
     }
 
     private fun dismissActiveOverlay() {
@@ -638,7 +650,10 @@ class OverlayService : Service() {
             val currentBucket = totalMs / FIVE_MINUTES_MS
             if (currentBucket > 0 && currentBucket != lastTriggeredBucket) {
                 lastTriggeredBucket = currentBucket
-                showActiveOverlay(text)
+                showActiveOverlay(
+                    timeText = text,
+                    trigger = ActiveOverlayTrigger.FIVE_MINUTE_BUCKET
+                )
             }
 
             handler.postDelayed(this, TICK_INTERVAL_MS)

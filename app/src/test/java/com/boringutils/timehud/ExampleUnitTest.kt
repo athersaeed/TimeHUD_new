@@ -21,6 +21,16 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun bubble_tap_check_in_can_close_immediately() {
+        assertFalse(ActiveOverlayTrigger.BUBBLE_TAP.requiresCloseDelay)
+    }
+
+    @Test
+    fun automatic_five_minute_check_in_keeps_close_delay() {
+        assertTrue(ActiveOverlayTrigger.FIVE_MINUTE_BUCKET.requiresCloseDelay)
+    }
+
+    @Test
     fun bubble_position_is_clamped_inside_the_screen() {
         assertEquals(
             BubblePosition(x = 0, y = 736),

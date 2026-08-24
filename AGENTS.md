@@ -16,7 +16,7 @@ Core flow:
 4. Starting the HUD launches `OverlayService` as a foreground service.
 5. A draggable bubble shows total interactive screen time and opens the goal check-in when tapped.
 6. At newly observed five-minute usage buckets, it is replaced by the same full-screen goal check-in.
-7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, or close the check-in after the enforced delay.
+7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, or close it. Bubble-opened check-ins close immediately; automatic five-minute check-ins enforce a five-second delay.
 8. The service can restart after boot or package replacement when saved active state and required permissions allow it.
 
 Important timing behavior:
