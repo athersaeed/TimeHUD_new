@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.LayoutInflater
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -45,5 +46,16 @@ class ExampleInstrumentedTest {
 
         val serviceNames = packageInfo.services?.map { it.name }.orEmpty()
         assertEquals(listOf(OverlayService::class.java.name), serviceNames)
+    }
+
+    @Test
+    fun passive_overlay_is_an_interactive_bubble() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val bubble = LayoutInflater.from(context).inflate(R.layout.overlay_passive, null)
+
+        assertTrue(bubble.isClickable)
+        assertTrue(bubble.isFocusable)
+        assertNotNull(bubble.background)
+        assertNotNull(bubble.findViewById<android.widget.TextView>(R.id.tv_time))
     }
 }

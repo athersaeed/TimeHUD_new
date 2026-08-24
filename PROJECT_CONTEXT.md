@@ -9,9 +9,9 @@ This document is a source-based technical handoff for the checked-in Android pro
 ### Identity and purpose
 
 - The Gradle project name, launcher label, and on-screen title are all **TimeHUD** (`settings.gradle.kts:25`, `app/src/main/res/values/strings.xml:2`, `app/src/main/java/com/boringutils/timehud/MainActivity.kt`).
-- TimeHUD is a native Android focus/accountability utility. It measures how long the device screen has been interactive since a 3:00 AM daily boundary, displays the total in a small always-on-top HUD, and periodically replaces it with a full-screen goal check-in (`OverlayService.kt:519-602`).
+- TimeHUD is a native Android focus/accountability utility. It measures how long the device screen has been interactive since a 3:00 AM daily boundary, displays the total in a movable always-on-top bubble, and periodically replaces it with a full-screen goal check-in (`OverlayService.kt`).
 - The likely target user is someone who wants persistent awareness of screen time and repeated reminders of daily and longer-term goals. This is a reasonable inference from the default goals and UI copy, not an explicitly documented market definition (`GoalSettings.kt:28-34`, `overlay_active.xml:88-103`).
-- The main problem it addresses is that ordinary screen-time information is easy to ignore. TimeHUD keeps the total visible over other apps and interrupts at five-minute usage buckets with goals and an optional calendar agenda.
+- The main problem it addresses is that ordinary screen-time information is easy to ignore. TimeHUD keeps the total available in a movable bubble over other apps and interrupts at five-minute usage buckets with goals and an optional calendar agenda.
 
 ### Primary user journey
 
@@ -20,15 +20,15 @@ This document is a source-based technical handoff for the checked-in Android pro
 3. Optionally edit short-term and long-term goals. The **Goal Backup** panel can export the current editor contents to JSON or restore a validated JSON backup after confirmation. The system document picker supplies one-time file access; no storage permission is requested (`MainActivity.kt`, `ui/backup/GoalBackupPanel.kt`).
 4. Optionally grant calendar read permission and import today's visible events into the short-term text (`MainActivity.kt`, `CalendarAgenda.kt`).
 5. Save goals or press **Start HUD**, which saves the current fields and starts `OverlayService` as a foreground service (`MainActivity.kt`).
-6. A passive, non-touchable timer appears at the top-right over other apps and updates every 10 seconds (`OverlayService.kt:40`, `OverlayService.kt:128-159`, `overlay_passive.xml`).
+6. A circular timer bubble appears over other apps and updates every 10 seconds. It can be dragged anywhere within the screen; the last position is restored when the bubble returns (`OverlayService.kt`, `BubblePositioning.kt`, `overlay_passive.xml`).
 7. Once per newly observed five-minute total-screen-time bucket, a touchable full-screen overlay appears. It shows the time, up to five live calendar events, and up to eight short- or long-term goal lines (`OverlayService.kt:161-212`, `OverlayService.kt:236-260`, `OverlayService.kt:491-509`, `OverlayService.kt:528-532`). Because `lastTriggeredBucket` begins at `-1`, starting/restarting the service after at least five minutes of accumulated screen time can trigger this overlay immediately.
-8. The user can switch between short- and long-term goals, tap a goal, mark it done for today, remove it, or cancel. Completion shows a brief animation. The close button is intentionally disabled for five seconds (`OverlayService.kt:177-191`, `OverlayService.kt:319-410`).
+8. Tapping the bubble opens the same full-screen check-in on demand. In the check-in, the user can switch between short- and long-term goals, tap a goal, mark it done for today, remove it, or cancel. Completion shows a brief animation. The close button is intentionally disabled for five seconds (`OverlayService.kt`, `overlay_active.xml`).
 9. The persistent notification opens `MainActivity`. **Stop HUD** stops the service and clears the restart preference (`OverlayService.kt:100-125`, `MainActivity.kt:130-132`).
 10. If the HUD was marked active, boot or package replacement attempts to restart it when overlay and usage permissions are still present (`BootReceiver.kt:17-35`).
 
 ### Features confirmed in the current source
 
-- Persistent passive screen-time overlay.
+- Persistent draggable screen-time bubble with tap-to-open check-in behavior and saved position.
 - Foreground service and ongoing notification.
 - Screen-interactive-time calculation with a 3:00 AM boundary.
 - Five-minute-bucket full-screen check-ins.
@@ -170,7 +170,7 @@ TimeHUD_cloud/
         ui/backup/
           GoalBackupPanel.kt           Backup controls, status, and replace confirmation dialog
       res/
-        layout/overlay_passive.xml     Small passive HUD
+        layout/overlay_passive.xml     Draggable screen-time bubble
         layout/overlay_active.xml      Full-screen check-in, agenda, modal, celebration layers
         values/                        App/notification strings, legacy colors, platform theme
         drawable/                      Launcher vectors and two currently unused backgrounds
@@ -193,8 +193,8 @@ The overlay entries below are service-owned window layers rather than Android na
 | Setup/control screen | Launcher `MAIN`/`LAUNCHER` -> `.MainActivity`; no named route | `MainActivity.kt`, Compose | None | First and only in-app activity; opened by launcher or foreground notification | Grant overlay/usage access, edit/save/backup goals, connect/import calendar, start/stop HUD | Android Settings/AppOps, goal/calendar/backup helpers, `OverlayServiceStateStore` |
 | Goal Backup panel | Section within setup/control screen | `ui/backup/GoalBackupPanel.kt`, `MainActivity.kt` | None | Appears immediately below goal settings | Export current editor text; open and validate a JSON backup | Activity Result APIs, `GoalBackupFormat`, `GoalBackupStorage`, current editor state |
 | Replace Goals dialog | Compose `AlertDialog`; no route | `ui/backup/GoalBackupPanel.kt` | None | Appears only after a complete valid backup is read | Replace both saved/editor goal groups or cancel | Pending validated goal text and `GoalSettings` |
-| Passive HUD | No route; `WindowManager` overlay created by `OverlayService.showPassiveOverlay()` | `OverlayService.kt:150-159`, `overlay_passive.xml` | None | Appears when the service starts and whenever active check-in closes | None; window is not touchable | `UsageStatsManager`, `PowerManager` |
-| Active goal check-in | No route; `showActiveOverlay()` once per observed five-minute bucket | `OverlayService.kt:161-234`, `overlay_active.xml` | None | Temporarily replaces passive HUD across the full screen | Switch short/long goals, tap a goal, close after five seconds | Usage total, `GoalSettings`, `GoalCompletionStore`, live `CalendarAgenda` |
+| Screen-time bubble | No route; `WindowManager` overlay created by `OverlayService.showPassiveOverlay()` | `OverlayService.kt`, `BubblePositioning.kt`, `overlay_passive.xml` | Saved x/y position | Appears when the service starts and whenever active check-in closes | Drag to reposition; tap to open the active check-in | `UsageStatsManager`, `PowerManager`, `SharedPreferences` |
+| Active goal check-in | No route; `showActiveOverlay()` from a bubble tap or once per observed five-minute bucket | `OverlayService.kt`, `overlay_active.xml` | None | Temporarily replaces the bubble across the full screen | Switch short/long goals, tap a goal, close after five seconds | Usage total, `GoalSettings`, `GoalCompletionStore`, live `CalendarAgenda` |
 | Goal completion modal | Child layer in active overlay (`layout_completion_modal`) | `OverlayService.kt:339-374`, `overlay_active.xml:162-227` | None | Opens when an incomplete goal row is tapped | Done for today, remove goal, cancel, tap scrim to dismiss | Active goal and completion/preferences stores |
 | Completion celebration | Transient child layer in active overlay | `OverlayService.kt:376-489`, `overlay_active.xml:132-160` | None | Runs after marking a task complete | None | Current goal-row view |
 | Overlay permission settings | External `Settings.ACTION_MANAGE_OVERLAY_PERMISSION` | `MainActivity.kt:106-113` | N/A | Opened from Overlay Permission card | User grants/denies special access | Android Settings |
@@ -229,10 +229,11 @@ App icon or notification
                  -> Replace Goals -> save both groups and update editors
                  -> Cancel -> no data change
        -> Start HUD -> OverlayService
-            -> passive top-right HUD
+            -> draggable screen-time bubble
+                 -> tap -> active full-screen check-in
             -> new five-minute usage bucket -> active full-screen check-in
                  -> goal tap -> completion modal -> done/remove/cancel
-                 -> close after 5 seconds -> passive HUD
+                 -> close after 5 seconds -> screen-time bubble
        -> Stop HUD -> service and overlays removed
 
 Device boot or app replacement
@@ -369,7 +370,7 @@ Other platform usage:
 - Overlays use platform XML `LinearLayout`, `FrameLayout`, `ScrollView`, `Button`, `Switch`, `CheckBox`, and programmatically created goal rows.
 - The application XML theme is legacy `android:Theme.Material.Light.NoActionBar`, while the content is visually dark and the activity uses Material 3 Compose (`values/themes.xml:4`).
 - Colors, spacing, strings, and text sizes are mostly hardcoded across Kotlin/XML. `bg_active.xml`, `bg_passive.xml`, and all legacy colors in `values/colors.xml` are currently unused according to lint.
-- The passive HUD uses green 26sp monospace text; the active timer uses 74sp. The goals list scrolls, but the full active layout has fixed top content and no system-inset handling.
+- The 64dp bubble uses compact green monospace text; the active timer uses 74sp. The goals list scrolls, but the full active layout has fixed top content and no system-inset handling.
 
 ### Accessibility, localization, and states
 
@@ -494,7 +495,7 @@ The most important untested behavior is also the most failure-prone: screen-time
 ### Fully implemented in source
 
 - Single setup/control activity and permission status refresh.
-- Foreground overlay service, passive HUD, active check-in, notification, explicit stop.
+- Foreground overlay service, draggable bubble, active check-in, notification, explicit stop.
 - Local goal editing, defaults, persistence, daily completion, undo/removal, and celebration UI.
 - Manual goal-only JSON export and validated, confirmed replacement import through the system document picker.
 - Optional calendar permission, import, and live agenda rendering.

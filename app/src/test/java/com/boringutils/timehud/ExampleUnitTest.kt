@@ -21,6 +21,36 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun bubble_position_is_clamped_inside_the_screen() {
+        assertEquals(
+            BubblePosition(x = 0, y = 736),
+            BubblePositioning.clamp(
+                x = -40,
+                y = 900,
+                screenWidth = 400,
+                screenHeight = 800,
+                bubbleWidth = 64,
+                bubbleHeight = 64
+            )
+        )
+    }
+
+    @Test
+    fun bubble_position_is_unchanged_when_already_visible() {
+        assertEquals(
+            BubblePosition(x = 120, y = 240),
+            BubblePositioning.clamp(
+                x = 120,
+                y = 240,
+                screenWidth = 400,
+                screenHeight = 800,
+                bubbleWidth = 64,
+                bubbleHeight = 64
+            )
+        )
+    }
+
+    @Test
     fun calendar_import_appends_section_without_replacing_manual_goals() {
         val result = CalendarAgenda.appendCalendarSection(
             shortTermGoals = "Finish report",

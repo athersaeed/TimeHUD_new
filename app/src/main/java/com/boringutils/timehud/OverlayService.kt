@@ -19,7 +19,9 @@ import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
@@ -29,6 +31,7 @@ import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
 import java.util.Calendar
 
 class OverlayService : Service() {
@@ -40,6 +43,12 @@ class OverlayService : Service() {
         private const val TICK_INTERVAL_MS = 10_000L
         private const val ACTIVE_CLOSE_DELAY_MS = 5_000L
         private const val FIVE_MINUTES_MS = 5 * 60 * 1_000L
+        private const val BUBBLE_SIZE_DP = 64
+        private const val BUBBLE_EDGE_MARGIN_DP = 8
+        private const val BUBBLE_DEFAULT_TOP_DP = 80
+        private const val BUBBLE_PREFERENCES = "timehud_bubble"
+        private const val BUBBLE_X_KEY = "bubble_x"
+        private const val BUBBLE_Y_KEY = "bubble_y"
     }
 
     private lateinit var windowManager: WindowManager
@@ -125,7 +134,7 @@ class OverlayService : Service() {
         )
     }
 
-    private fun makeLayoutParams(gravity: Int): WindowManager.LayoutParams {
+    private fun makeBubbleLayoutParams(): WindowManager.LayoutParams {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
@@ -137,25 +146,126 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            this.gravity = gravity
-            x = 0
-            y = 0
+            gravity = Gravity.TOP or Gravity.START
         }
     }
 
     private fun showPassiveOverlay() {
         if (passiveView != null) return
         val inflater = LayoutInflater.from(this)
-        passiveView = inflater.inflate(R.layout.overlay_passive, null)
-        passiveView?.findViewById<TextView>(R.id.tv_time)?.text = getFormattedScreenTime()
+        val view = inflater.inflate(R.layout.overlay_passive, null)
+        val params = makeBubbleLayoutParams()
+        val savedPosition = loadBubblePosition()
+        val position = BubblePositioning.clamp(
+            x = savedPosition?.x ?: defaultBubbleX(),
+            y = savedPosition?.y ?: dpToPx(BUBBLE_DEFAULT_TOP_DP),
+            screenWidth = resources.displayMetrics.widthPixels,
+            screenHeight = resources.displayMetrics.heightPixels,
+            bubbleWidth = dpToPx(BUBBLE_SIZE_DP),
+            bubbleHeight = dpToPx(BUBBLE_SIZE_DP)
+        )
+        params.x = position.x
+        params.y = position.y
 
-        val params = makeLayoutParams(Gravity.TOP or Gravity.END)
-        params.x = dpToPx(8)
-        windowManager.addView(passiveView, params)
+        passiveView = view
+        updateBubbleText(view, getFormattedScreenTime())
+        attachBubbleTouchListener(view, params)
+        windowManager.addView(view, params)
+    }
+
+    private fun attachBubbleTouchListener(view: View, params: WindowManager.LayoutParams) {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0
+        var startY = 0
+        var isDragging = false
+
+        view.setOnClickListener {
+            showActiveOverlay(getFormattedScreenTime())
+        }
+        view.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    isDragging = false
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = event.rawX - downRawX
+                    val deltaY = event.rawY - downRawY
+                    if (!isDragging &&
+                        deltaX * deltaX + deltaY * deltaY >=
+                        (touchSlop * touchSlop).toFloat()
+                    ) {
+                        isDragging = true
+                    }
+                    if (isDragging) {
+                        val position = BubblePositioning.clamp(
+                            x = startX + deltaX.toInt(),
+                            y = startY + deltaY.toInt(),
+                            screenWidth = resources.displayMetrics.widthPixels,
+                            screenHeight = resources.displayMetrics.heightPixels,
+                            bubbleWidth = view.width.coerceAtLeast(dpToPx(BUBBLE_SIZE_DP)),
+                            bubbleHeight = view.height.coerceAtLeast(dpToPx(BUBBLE_SIZE_DP))
+                        )
+                        params.x = position.x
+                        params.y = position.y
+                        if (passiveView === view) {
+                            windowManager.updateViewLayout(view, params)
+                        }
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (isDragging) {
+                        saveBubblePosition(params.x, params.y)
+                    } else {
+                        view.performClick()
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    if (isDragging) {
+                        saveBubblePosition(params.x, params.y)
+                    }
+                    true
+                }
+
+                else -> false
+            }
+        }
+    }
+
+    private fun defaultBubbleX(): Int =
+        resources.displayMetrics.widthPixels -
+            dpToPx(BUBBLE_SIZE_DP + BUBBLE_EDGE_MARGIN_DP)
+
+    private fun loadBubblePosition(): BubblePosition? {
+        val preferences = getSharedPreferences(BUBBLE_PREFERENCES, MODE_PRIVATE)
+        if (!preferences.contains(BUBBLE_X_KEY) || !preferences.contains(BUBBLE_Y_KEY)) {
+            return null
+        }
+        return BubblePosition(
+            x = preferences.getInt(BUBBLE_X_KEY, 0),
+            y = preferences.getInt(BUBBLE_Y_KEY, 0)
+        )
+    }
+
+    private fun saveBubblePosition(x: Int, y: Int) {
+        getSharedPreferences(BUBBLE_PREFERENCES, MODE_PRIVATE).edit {
+            putInt(BUBBLE_X_KEY, x)
+            putInt(BUBBLE_Y_KEY, y)
+        }
     }
 
     private fun showActiveOverlay(timeText: String) {
@@ -536,7 +646,12 @@ class OverlayService : Service() {
     }
 
     private fun updatePassiveText(text: String) {
-        passiveView?.findViewById<TextView>(R.id.tv_time)?.text = text
+        passiveView?.let { updateBubbleText(it, text) }
+    }
+
+    private fun updateBubbleText(view: View, text: String) {
+        view.findViewById<TextView>(R.id.tv_time)?.text = text
+        view.contentDescription = getString(R.string.overlay_bubble_content_description, text)
     }
 
     private fun queryScreenTimeMs(): Long {

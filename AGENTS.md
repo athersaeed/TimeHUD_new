@@ -14,8 +14,8 @@ Core flow:
 2. The user grants overlay access and usage access.
 3. The user can edit short-term and long-term goals and optionally grant calendar read access.
 4. Starting the HUD launches `OverlayService` as a foreground service.
-5. A passive, non-touchable overlay shows total interactive screen time.
-6. At newly observed five-minute usage buckets, it is replaced by a full-screen goal check-in.
+5. A draggable bubble shows total interactive screen time and opens the goal check-in when tapped.
+6. At newly observed five-minute usage buckets, it is replaced by the same full-screen goal check-in.
 7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, or close the check-in after the enforced delay.
 8. The service can restart after boot or package replacement when saved active state and required permissions allow it.
 
@@ -336,7 +336,7 @@ Do not raise the minimum SDK as a shortcut unless explicitly approved.
 - Use start/end instead of left/right layout attributes.
 - Add meaningful semantics, focusability, labels, and adequate touch targets.
 - Do not make the full-screen overlay impossible to escape because of a UI regression.
-- Keep passive overlays non-interactive unless the feature explicitly changes that contract.
+- Keep the screen-time bubble's tap-versus-drag behavior distinct and accessible.
 - Provide relevant loading, empty, disabled, success, and error behavior.
 
 ### Security and privacy

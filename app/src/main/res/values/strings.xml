@@ -4,6 +4,8 @@
     <string name="channel_description">Keeps the screen-time overlay running</string>
     <string name="notif_title">TimeHUD is active</string>
     <string name="notif_text">Tracking your screen time</string>
+    <string name="overlay_bubble_time_placeholder">0h0m</string>
+    <string name="overlay_bubble_content_description">TimeHUD, %1$s screen time. Tap to open the check-in. Drag to move.</string>
     <string name="goal_backup_title">Goal Backup</string>
     <string name="goal_backup_description">Save or replace goal lists using a local JSON file.</string>
     <string name="goal_backup_export">Export Goals</string>
