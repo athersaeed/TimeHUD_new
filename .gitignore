@@ -38,3 +38,4 @@ keystore.properties
 # Generated Android release artifacts
 *.apk
 *.aab
+*.idsig
