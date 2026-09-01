@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -51,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -60,7 +60,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.boringutils.timehud.ui.backup.GoalBackupPanel
 import com.boringutils.timehud.ui.backup.GoalImportConfirmationDialog
+import com.boringutils.timehud.ui.navigation.TimeHudDestination
+import com.boringutils.timehud.ui.navigation.TimeHudDrawerScaffold
 import com.boringutils.timehud.ui.theme.TimeHUDTheme
+import com.boringutils.timehud.ui.usage.AppUsageScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -95,11 +98,20 @@ private fun hasOverlayPermission(context: Context): Boolean =
 
 private fun hasUsagePermission(context: Context): Boolean {
     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-    val mode = appOps.unsafeCheckOpNoThrow(
-        AppOpsManager.OPSTR_GET_USAGE_STATS,
-        Process.myUid(),
-        context.packageName
-    )
+    @Suppress("DEPRECATION")
+    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        appOps.unsafeCheckOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            Process.myUid(),
+            context.packageName
+        )
+    } else {
+        appOps.checkOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            Process.myUid(),
+            context.packageName
+        )
+    }
     return mode == AppOpsManager.MODE_ALLOWED
 }
 
@@ -144,6 +156,12 @@ fun TimeHUDScreen(
     var overlayGranted by remember { mutableStateOf(hasOverlayPermission(context)) }
     var usageGranted by remember { mutableStateOf(hasUsagePermission(context)) }
     var calendarGranted by remember { mutableStateOf(CalendarAgenda.hasReadCalendarPermission(context)) }
+    var selectedDestinationName by rememberSaveable {
+        mutableStateOf(TimeHudDestination.GOALS.name)
+    }
+    val selectedDestination = runCatching {
+        TimeHudDestination.valueOf(selectedDestinationName)
+    }.getOrDefault(TimeHudDestination.GOALS)
 
     val initialGoalConfig = remember { GoalSettings.load(context) }
     var shortTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.shortTermGoals) }
@@ -198,11 +216,13 @@ fun TimeHUDScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         calendarGranted = granted
-        if (granted) {
-            applyCalendarImport()
-        } else {
-            calendarImportStatus = "Calendar permission denied"
-        }
+        calendarImportStatus = context.getString(
+            if (granted) {
+                R.string.calendar_permission_granted
+            } else {
+                R.string.calendar_permission_denied
+            }
+        )
     }
 
     fun requestCalendarImport() {
@@ -210,7 +230,7 @@ fun TimeHUDScreen(
             calendarGranted = true
             applyCalendarImport()
         } else {
-            calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
+            selectedDestinationName = TimeHudDestination.PERMISSIONS.name
         }
     }
 
@@ -309,149 +329,74 @@ fun TimeHUDScreen(
 
     val allGranted = overlayGranted && usageGranted
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
+    TimeHudDrawerScaffold(
+        selectedDestination = selectedDestination,
+        onDestinationSelected = { selectedDestinationName = it.name }
     ) {
-        Spacer(modifier = Modifier.height(28.dp))
-
-        Text(
-            text = "TimeHUD",
-            fontSize = 36.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-            letterSpacing = 2.sp
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = "Screen-time overlay",
-            fontSize = 14.sp,
-            color = Color(0xFF8888AA)
-        )
-
-        Spacer(modifier = Modifier.height(48.dp))
-
-        PermissionCard(
-            title = "Overlay Permission",
-            description = "Draw over other apps",
-            granted = overlayGranted,
-            onRequest = { requestOverlayPermission(context) }
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        PermissionCard(
-            title = "Usage Access",
-            description = "Read screen-time statistics",
-            granted = usageGranted,
-            onRequest = { requestUsagePermission(context) }
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        GoalSettingsPanel(
-            shortTermGoals = shortTermGoals,
-            onShortTermGoalsChange = {
-                shortTermGoals = it
-                goalsSaved = false
-                clearBackupStatus()
-            },
-            longTermGoals = longTermGoals,
-            onLongTermGoalsChange = {
-                longTermGoals = it
-                goalsSaved = false
-                clearBackupStatus()
-            },
-            onSave = { saveGoalSettings() },
-            saved = goalsSaved,
-            calendarGranted = calendarGranted,
-            calendarImportStatus = calendarImportStatus,
-            onImportCalendar = { requestCalendarImport() }
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        GoalBackupPanel(
-            isBusy = backupOperationInProgress,
-            statusMessageRes = backupStatusMessageRes,
-            statusIsError = backupStatusIsError,
-            onExport = {
-                clearBackupStatus()
-                pendingExportShortTermGoals = shortTermGoals
-                pendingExportLongTermGoals = longTermGoals
-                pendingExportTimestamp = System.currentTimeMillis()
-                exportGoalsLauncher.launch(context.getString(R.string.goal_backup_filename))
-            },
-            onImport = {
-                clearBackupStatus()
-                clearPendingImport()
-                importGoalsLauncher.launch(arrayOf(GoalBackupFormat.MIME_TYPE))
-            }
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        val primaryAction = serviceState.primaryAction
-        val buttonColor by animateColorAsState(
-            targetValue = if (primaryAction == ServicePrimaryAction.STOP) {
-                Color(0xFFCF4444)
-            } else {
-                Color(0xFF4488FF)
-            },
-            animationSpec = tween(300),
-            label = "btnColor"
-        )
-
-        Button(
-            onClick = {
-                when (primaryAction) {
-                    ServicePrimaryAction.STOP -> onStopService()
-                    ServicePrimaryAction.START -> {
-                        saveGoalSettings()
-                        onStartService()
-                    }
-                }
-            },
-            enabled = serviceState.isRunning || allGranted,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = buttonColor,
-                disabledContainerColor = Color(0xFF2A2A3A)
-            )
-        ) {
-            Text(
-                text = when (primaryAction) {
-                    ServicePrimaryAction.START -> "Start HUD"
-                    ServicePrimaryAction.STOP -> "Stop HUD"
+        when (selectedDestination) {
+            TimeHudDestination.GOALS -> GoalsPage(
+                shortTermGoals = shortTermGoals,
+                onShortTermGoalsChange = {
+                    shortTermGoals = it
+                    goalsSaved = false
+                    clearBackupStatus()
                 },
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (serviceState.isRunning || allGranted) {
-                    Color.White
-                } else {
-                    Color(0xFF666680)
+                longTermGoals = longTermGoals,
+                onLongTermGoalsChange = {
+                    longTermGoals = it
+                    goalsSaved = false
+                    clearBackupStatus()
+                },
+                onSaveGoals = { saveGoalSettings() },
+                goalsSaved = goalsSaved,
+                calendarGranted = calendarGranted,
+                calendarImportStatus = calendarImportStatus,
+                onImportCalendar = { requestCalendarImport() },
+                backupOperationInProgress = backupOperationInProgress,
+                backupStatusMessageRes = backupStatusMessageRes,
+                backupStatusIsError = backupStatusIsError,
+                onExportGoals = {
+                    clearBackupStatus()
+                    pendingExportShortTermGoals = shortTermGoals
+                    pendingExportLongTermGoals = longTermGoals
+                    pendingExportTimestamp = System.currentTimeMillis()
+                    exportGoalsLauncher.launch(context.getString(R.string.goal_backup_filename))
+                },
+                onImportGoals = {
+                    clearBackupStatus()
+                    clearPendingImport()
+                    importGoalsLauncher.launch(arrayOf(GoalBackupFormat.MIME_TYPE))
+                },
+                serviceState = serviceState,
+                allRequiredPermissionsGranted = allGranted,
+                onOpenPermissions = {
+                    selectedDestinationName = TimeHudDestination.PERMISSIONS.name
+                },
+                onStartService = {
+                    saveGoalSettings()
+                    onStartService()
+                },
+                onStopService = onStopService
+            )
+
+            TimeHudDestination.APP_USAGE -> AppUsageScreen(
+                usagePermissionGranted = usageGranted,
+                onOpenPermissions = {
+                    selectedDestinationName = TimeHudDestination.PERMISSIONS.name
+                }
+            )
+
+            TimeHudDestination.PERMISSIONS -> PermissionsPage(
+                overlayGranted = overlayGranted,
+                usageGranted = usageGranted,
+                calendarGranted = calendarGranted,
+                onRequestOverlay = { requestOverlayPermission(context) },
+                onRequestUsage = { requestUsagePermission(context) },
+                onRequestCalendar = {
+                    calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                 }
             )
         }
-
-        if (!allGranted) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = "Grant both permissions above to enable the HUD",
-                fontSize = 12.sp,
-                color = Color(0xFF666680),
-                textAlign = TextAlign.Center
-            )
-        }
-
-        Spacer(modifier = Modifier.height(28.dp))
     }
 
     if (pendingImportReady) {
@@ -478,6 +423,198 @@ fun TimeHUDScreen(
             },
             onCancel = { clearPendingImport() }
         )
+    }
+}
+
+@Composable
+private fun GoalsPage(
+    shortTermGoals: String,
+    onShortTermGoalsChange: (String) -> Unit,
+    longTermGoals: String,
+    onLongTermGoalsChange: (String) -> Unit,
+    onSaveGoals: () -> Unit,
+    goalsSaved: Boolean,
+    calendarGranted: Boolean,
+    calendarImportStatus: String?,
+    onImportCalendar: () -> Unit,
+    backupOperationInProgress: Boolean,
+    backupStatusMessageRes: Int?,
+    backupStatusIsError: Boolean?,
+    onExportGoals: () -> Unit,
+    onImportGoals: () -> Unit,
+    serviceState: OverlayServiceUiState,
+    allRequiredPermissionsGranted: Boolean,
+    onOpenPermissions: () -> Unit,
+    onStartService: () -> Unit,
+    onStopService: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp)
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top
+    ) {
+        Spacer(modifier = Modifier.height(20.dp))
+
+        GoalSettingsPanel(
+            shortTermGoals = shortTermGoals,
+            onShortTermGoalsChange = onShortTermGoalsChange,
+            longTermGoals = longTermGoals,
+            onLongTermGoalsChange = onLongTermGoalsChange,
+            onSave = onSaveGoals,
+            saved = goalsSaved,
+            calendarGranted = calendarGranted,
+            calendarImportStatus = calendarImportStatus,
+            onImportCalendar = onImportCalendar
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        GoalBackupPanel(
+            isBusy = backupOperationInProgress,
+            statusMessageRes = backupStatusMessageRes,
+            statusIsError = backupStatusIsError,
+            onExport = onExportGoals,
+            onImport = onImportGoals
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        val primaryAction = serviceState.primaryAction
+        val buttonColor by animateColorAsState(
+            targetValue = if (primaryAction == ServicePrimaryAction.STOP) {
+                Color(0xFFCF4444)
+            } else {
+                Color(0xFF4488FF)
+            },
+            animationSpec = tween(300),
+            label = "btnColor"
+        )
+
+        Button(
+            onClick = {
+                when (primaryAction) {
+                    ServicePrimaryAction.STOP -> onStopService()
+                    ServicePrimaryAction.START -> onStartService()
+                }
+            },
+            enabled = serviceState.isRunning || allRequiredPermissionsGranted,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = buttonColor,
+                disabledContainerColor = Color(0xFF2A2A3A)
+            )
+        ) {
+            Text(
+                text = when (primaryAction) {
+                    ServicePrimaryAction.START -> "Start HUD"
+                    ServicePrimaryAction.STOP -> "Stop HUD"
+                },
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (serviceState.isRunning || allRequiredPermissionsGranted) {
+                    Color.White
+                } else {
+                    Color(0xFF666680)
+                }
+            )
+        }
+
+        if (!allRequiredPermissionsGranted) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = stringResource(R.string.hud_permissions_needed),
+                fontSize = 12.sp,
+                color = Color(0xFF777794),
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(onClick = onOpenPermissions) {
+                Text(stringResource(R.string.open_permissions))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+    }
+}
+
+@Composable
+private fun PermissionsPage(
+    overlayGranted: Boolean,
+    usageGranted: Boolean,
+    calendarGranted: Boolean,
+    onRequestOverlay: () -> Unit,
+    onRequestUsage: () -> Unit,
+    onRequestCalendar: () -> Unit
+) {
+    val allRequiredPermissionsGranted = overlayGranted && usageGranted
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp)
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+    ) {
+        Spacer(modifier = Modifier.height(20.dp))
+        Text(
+            text = stringResource(R.string.permissions_heading),
+            color = Color.White,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = stringResource(R.string.permissions_description),
+            color = Color(0xFF9999B5),
+            fontSize = 13.sp
+        )
+        Spacer(modifier = Modifier.height(22.dp))
+
+        PermissionCard(
+            title = stringResource(R.string.permission_overlay_title),
+            description = stringResource(R.string.permission_overlay_description),
+            granted = overlayGranted,
+            onRequest = onRequestOverlay
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        PermissionCard(
+            title = stringResource(R.string.permission_usage_title),
+            description = stringResource(R.string.permission_usage_description),
+            granted = usageGranted,
+            onRequest = onRequestUsage
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        PermissionCard(
+            title = stringResource(R.string.permission_calendar_title),
+            description = stringResource(R.string.permission_calendar_description),
+            granted = calendarGranted,
+            onRequest = onRequestCalendar
+        )
+        Spacer(modifier = Modifier.height(22.dp))
+
+        Text(
+            text = stringResource(
+                if (allRequiredPermissionsGranted) {
+                    R.string.permission_required_ready
+                } else {
+                    R.string.permission_required_missing
+                }
+            ),
+            color = if (allRequiredPermissionsGranted) {
+                Color(0xFF69F0AE)
+            } else {
+                Color(0xFFFFB0A8)
+            },
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.height(28.dp))
     }
 }
 
@@ -551,7 +688,7 @@ fun GoalSettingsPanel(
                 text = if (calendarGranted) {
                     "Import Today's Calendar"
                 } else {
-                    "Connect Calendar"
+                    stringResource(R.string.calendar_permission_setup)
                 },
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold
@@ -649,7 +786,7 @@ fun PermissionCard(
         }
         if (granted) {
             Text(
-                text = "Granted",
+                text = stringResource(R.string.permission_granted),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = accentColor
@@ -660,7 +797,7 @@ fun PermissionCard(
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = accentColor)
             ) {
-                Text("Grant", fontSize = 13.sp)
+                Text(stringResource(R.string.permission_grant), fontSize = 13.sp)
             }
         }
     }

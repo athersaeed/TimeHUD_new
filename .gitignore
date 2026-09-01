@@ -34,3 +34,7 @@ Thumbs.db
 *.jks
 *.keystore
 keystore.properties
+
+# Generated Android release artifacts
+*.apk
+*.aab

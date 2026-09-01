@@ -2,29 +2,32 @@
 
 Audit date: 2026-07-11
 
+Last implementation update: 2026-09-01
+
 This document is a source-based technical handoff for the checked-in Android project. It describes the current repository, not a proposed architecture. Generated content under `app/build/`, `.gradle/`, `.gradle-work/`, and `.kotlin/` was ignored except for verification reports and build artifacts produced during this audit.
 
 ## 1. App overview
 
 ### Identity and purpose
 
-- The Gradle project name, launcher label, and on-screen title are all **TimeHUD** (`settings.gradle.kts:25`, `app/src/main/res/values/strings.xml:2`, `app/src/main/java/com/boringutils/timehud/MainActivity.kt`).
+- The Gradle project name, custom launcher icon, launcher label, and on-screen title are all branded **TimeHUD** (`settings.gradle.kts:25`, `app/src/main/res/drawable/ic_launcher_foreground.xml`, `app/src/main/res/values/strings.xml:2`, `app/src/main/java/com/boringutils/timehud/MainActivity.kt`).
 - TimeHUD is a native Android focus/accountability utility. It measures how long the device screen has been interactive since a 3:00 AM daily boundary, displays the total in a movable always-on-top bubble, and periodically replaces it with a full-screen goal check-in (`OverlayService.kt`).
 - The likely target user is someone who wants persistent awareness of screen time and repeated reminders of daily and longer-term goals. This is a reasonable inference from the default goals and UI copy, not an explicitly documented market definition (`GoalSettings.kt:28-34`, `overlay_active.xml:88-103`).
 - The main problem it addresses is that ordinary screen-time information is easy to ignore. TimeHUD keeps the total available in a movable bubble over other apps and interrupts at five-minute usage buckets with goals and an optional calendar agenda.
 
 ### Primary user journey
 
-1. Launch the single `MainActivity` from the app icon.
-2. Grant special overlay access and usage access. The **Start HUD** button remains disabled until both are detected (`MainActivity.kt`).
-3. Optionally edit short-term and long-term goals. The **Goal Backup** panel can export the current editor contents to JSON or restore a validated JSON backup after confirmation. The system document picker supplies one-time file access; no storage permission is requested (`MainActivity.kt`, `ui/backup/GoalBackupPanel.kt`).
-4. Optionally grant calendar read permission and import today's visible events into the short-term text (`MainActivity.kt`, `CalendarAgenda.kt`).
+1. Launch the single `MainActivity` from the app icon. The **Goals** destination opens first, with a hamburger drawer for **Goals**, **App usage**, and **Permissions**.
+2. Open **Permissions** from the bottom of the drawer and grant special overlay access and usage access. The **Start HUD** button remains disabled until both are detected (`MainActivity.kt`). Calendar access is optional and is requested on this page.
+3. On **Goals**, optionally edit short-term and long-term goals. The **Goal Backup** panel can export the current editor contents to JSON or restore a validated JSON backup after confirmation. The system document picker supplies one-time file access; no storage permission is requested (`MainActivity.kt`, `ui/backup/GoalBackupPanel.kt`).
+4. Optionally import today's visible calendar events into the short-term text after calendar access is granted (`MainActivity.kt`, `CalendarAgenda.kt`).
 5. Save goals or press **Start HUD**, which saves the current fields and starts `OverlayService` as a foreground service (`MainActivity.kt`).
 6. A circular timer bubble appears over other apps and updates every 10 seconds. It can be dragged anywhere within the screen; the last position is restored when the bubble returns (`OverlayService.kt`, `BubblePositioning.kt`, `overlay_passive.xml`).
 7. Once per newly observed five-minute total-screen-time bucket, a touchable full-screen overlay appears. It shows the time, up to five live calendar events, and up to eight short- or long-term goal lines (`OverlayService.kt:161-212`, `OverlayService.kt:236-260`, `OverlayService.kt:491-509`, `OverlayService.kt:528-532`). Because `lastTriggeredBucket` begins at `-1`, starting/restarting the service after at least five minutes of accumulated screen time can trigger this overlay immediately.
 8. Tapping the bubble opens the same full-screen check-in on demand and enables its close button immediately. Automatically triggered five-minute check-ins keep the five-second close delay. In the check-in, the user can switch between short- and long-term goals, tap a goal, mark it done for today, remove it, or cancel. Completion shows a brief animation (`OverlayService.kt`, `overlay_active.xml`).
 9. The persistent notification opens `MainActivity`. **Stop HUD** stops the service and clears the restart preference (`OverlayService.kt:100-125`, `MainActivity.kt:130-132`).
 10. If the HUD was marked active, boot or package replacement attempts to restart it when overlay and usage permissions are still present (`BootReceiver.kt:17-35`).
+11. Open **App usage** to refresh a top-five horizontal bar chart and a full longest-first list of per-app foreground time since the same 3:00 AM boundary. This history is read locally through `UsageStatsManager` and is not persisted or uploaded (`ui/usage/`).
 
 ### Features confirmed in the current source
 
@@ -33,6 +36,8 @@ This document is a source-based technical handoff for the checked-in Android pro
 - Screen-interactive-time calculation with a 3:00 AM boundary.
 - Five-minute-bucket full-screen check-ins.
 - Editable short-term and long-term goal lists.
+- Hamburger navigation with Goals as the default page, App usage as a secondary page, and Permissions anchored at the bottom of the drawer.
+- Per-app foreground-time chart and descending list using the 3:00 AM daily boundary.
 - Manual goal-only JSON export and replacement import through Android's Storage Access Framework, including confirmation and validation.
 - Daily completion state, undo by tapping a completed row, permanent goal removal, and completion animation.
 - Optional read-only import/display of today's visible device-calendar events.
@@ -44,7 +49,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 - There is no custom backend, cloud sync, account system, or network client. The application ID is `com.boringutils.timehud`, and the manifest does not request `INTERNET`.
 - There are no explicit planned-feature documents, roadmap, or application TODOs. The only TODO found is template text in `data_extraction_rules.xml:8`; it is not evidence of a planned user feature.
 - Notification permission is declared but never requested at runtime.
-- A production signing setup, store metadata, release automation, privacy documentation, analytics, and crash reporting are absent.
+- A production signing setup, complete store metadata, release automation, privacy documentation, analytics, and crash reporting are absent. A Play-ready 512x512 icon source is checked in under `store-assets/`.
 
 ## 2. Current technology stack
 
@@ -53,15 +58,15 @@ This document is a source-based technical handoff for the checked-in Android pro
 | Language | Kotlin. Resolved Kotlin standard library `2.2.10`; the Compose compiler plugin alias is also `2.2.10` (`gradle/libs.versions.toml:9`, resolved Gradle dependency report). |
 | UI | Mixed: Jetpack Compose for `MainActivity`; XML layouts plus platform `View` widgets and `WindowManager` for overlays. |
 | Material | Compose Material 3. Declared Compose BOM `2024.09.00`; resolved `material3` is `1.3.0`. Compose UI artifacts resolve to `1.9.2` because newer direct/transitive constraints override the BOM's `1.7.0` constraints. |
-| Min SDK | 24 (`app/build.gradle.kts:16`). Current code is not actually safe on API 24-28; see Risks. |
+| Min SDK | 24 (`app/build.gradle.kts:16`). Usage-access checks select the API-29+ method only on Android 10 or newer and use the compatible `checkOpNoThrow()` fallback on API 24-28. |
 | Target SDK | 36 (`app/build.gradle.kts:17`). |
 | Compile SDK | Android API `36.1` (`app/build.gradle.kts:8-12`). |
 | Gradle | Wrapper `9.3.1` with SHA-256 verification (`gradle/wrapper/gradle-wrapper.properties:2-9`). |
 | Android Gradle Plugin | `9.1.0` (`gradle/libs.versions.toml:2`, `:29`). |
 | Java/JVM | Java source and target compatibility 11 (`app/build.gradle.kts:34-37`). Gradle daemon toolchain 21 (`gradle/gradle-daemon-jvm.properties:12`); IDE metadata selects `jbr-21` (`.idea/misc.xml:3`). |
-| Core libraries | AndroidX Core KTX `1.18.0`, Lifecycle Runtime KTX `2.10.0`, Activity Compose `1.13.0` (`gradle/libs.versions.toml:3,7-8`, `app/build.gradle.kts:43-51`). |
-| Async/reactive | `StateFlow` for one in-process service-running flag; Android main-thread `Handler` for service ticks and delayed UI work; lifecycle-aware Compose coroutine scope plus `Dispatchers.IO` for backup file reads/writes. No RxJava. |
-| Navigation | No navigation library or graph. One launcher activity plus external Settings intents and service-owned overlay views. |
+| Core libraries | AndroidX Core KTX `1.18.0`, Lifecycle Runtime/ViewModel Compose `2.10.0`, and Activity Compose `1.13.0` (`gradle/libs.versions.toml`, `app/build.gradle.kts`). |
+| Async/reactive | `StateFlow` for service-running and app-usage UI state; Android main-thread `Handler` for service ticks and delayed overlay UI work; lifecycle-aware coroutines with `Dispatchers.IO` for backup files and app-usage history. No RxJava. |
+| Navigation | One launcher activity with a state-based Material 3 navigation drawer. Goals is the default destination; App usage and Permissions are sibling destinations. No Navigation Compose graph or route arguments are needed. |
 | Dependency injection | None. Android services are acquired through `Context`; helper objects are Kotlin singletons. |
 | Persistence | Android `SharedPreferences`; no Room, DataStore, files, or cache database. |
 | Networking/backend | None. No Retrofit, Ktor, Volley, Firebase, Supabase, API models, base URL, or backend service. |
@@ -70,7 +75,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 | Authentication | None. |
 | Analytics/crash reporting | None. |
 | Unit testing | JUnit 4 `4.13.2`. |
-| Instrumented testing | AndroidX Test JUnit `1.3.0`, Espresso Core `3.7.0`, Compose UI test dependencies resolving to `1.9.2` (`gradle/libs.versions.toml:4-6`, `app/build.gradle.kts:52-58`). No Compose UI test is actually authored. |
+| Instrumented testing | AndroidX Test JUnit `1.3.0`, Espresso Core `3.7.0`, and Compose UI test dependencies resolving to `1.9.2`. `MainNavigationTest` exercises drawer navigation when run on a device/emulator. |
 
 The project is a single application module. It uses AGP 9's built-in Kotlin support; no separate Kotlin Android plugin is declared. No dependency lockfile is present.
 
@@ -80,10 +85,11 @@ The project is a single application module. It uses AGP 9's built-in Kotlin supp
 
 The app is a **single-module, component-oriented Android application**, not MVVM, MVI, or Clean Architecture:
 
-- There are no `ViewModel`, repository, use-case, domain, data-source, or dependency-injection layers.
-- `MainActivity` owns the Compose setup screen and directly calls Android APIs, preference helpers, calendar helpers, and service start/stop functions.
+- The app does not use app-wide MVVM, MVI, Clean Architecture, use cases, or dependency injection. The App usage destination adds one focused `AndroidViewModel` and a local usage repository without changing the rest of the architecture.
+- `MainActivity` owns the Compose Goals/Permissions state, drawer selection, Android permission launchers, preference helpers, calendar helpers, and service start/stop functions.
 - `OverlayService` is the runtime controller. It calculates usage, inflates and mutates overlay views, queries calendar data, and reads/writes goal persistence.
 - Stateless or persistence-oriented behavior is extracted into singleton objects: `CalendarAgenda`, `GoalSettings`, `GoalCompletionStore`, `StartupPreferences`, and `OverlayServiceStateStore`.
+- `AppUsageRepository` performs the platform usage-event query, while `AppUsageCalculator` contains the pure interval aggregation used by JVM tests.
 
 ### UI state and data flow
 
@@ -104,6 +110,12 @@ UsageStatsManager events + PowerManager.isInteractive
   -> 10-second Handler tick
   -> passive TextView and five-minute bucket trigger
 
+UsageStatsManager foreground/background events
+  -> AppUsageRepository on Dispatchers.IO
+  -> AppUsageCalculator
+  -> AppUsageViewModel StateFlow
+  -> chart and descending app rows
+
 Calendar provider
   -> CalendarAgenda
   -> optional imported goal text and live active-overlay agenda
@@ -121,21 +133,22 @@ OverlayService lifecycle
 
 ### State handling
 
-- `MainActivity` keeps permission flags with `remember`, editor text/status with `rememberSaveable`, and observes `OverlayServiceStateStore.uiState` with `collectAsState()` (`MainActivity.kt:134-146`).
+- `MainActivity` keeps permission flags with `remember`, drawer selection plus editor text/status with `rememberSaveable`, and observes `OverlayServiceStateStore.uiState` with `collectAsState()`.
 - An `ON_RESUME` observer rechecks overlay, usage, and calendar permissions after system screens return (`MainActivity.kt:181-191`).
-- `rememberSaveable` restores unsaved goal edits and status across ordinary activity recreation, but there is no `ViewModel` or saved-state schema.
+- `rememberSaveable` restores the selected destination, unsaved goal edits, and status across ordinary activity recreation. App-usage loading/results live in an activity-scoped `AppUsageViewModel`; other screens still have no ViewModel or saved-state schema.
 - `OverlayServiceStateStore` is process-memory only. `StartupPreferences` separately persists the user's active-HUD intent for boot/restart behavior (`OverlayServiceState.kt`, `StartupPreferences.kt`).
 - Overlay state (`isActiveState`, selected goal mode, current view, five-minute bucket) exists only in service fields and is lost if the service/process is recreated (`OverlayService.kt:48-53`).
 
 ### Business logic, errors, and loading
 
 - Screen-time aggregation and trigger logic live in `OverlayService` (`OverlayService.kt:519-602`).
+- Per-app foreground interval aggregation lives in `AppUsageCalculator`; platform querying and label resolution live in `AppUsageRepository`; loading, permission-required, empty, success, and unavailable states live in `AppUsageViewModel`.
 - Goal parsing, normalization, removal, and persistence live in `GoalSettings.kt`; completion-key and daily-date behavior live in `GoalCompletionStore.kt`.
 - Calendar querying/formatting lives in `CalendarAgenda.kt`.
 - Goal backup schema validation/serialization and one-time URI stream handling live in `GoalBackup.kt`; picker and confirmation state remain in `TimeHUDScreen`.
 - There is no generalized app-wide loading/error model. Goal backup introduces typed parse/read/write results plus disabled/loading/success/error presentation while asynchronous work runs; older goal/calendar/service flows remain mostly synchronous and ad hoc.
 - Calendar query `SecurityException` and `IllegalArgumentException` are converted to an empty list, so callers cannot distinguish failure from “no events” (`CalendarAgenda.kt:59-77`). Other service/overlay failures are not surfaced to the user.
-- Backup document and JSON work runs on `Dispatchers.IO`. Existing calendar queries and screen-time aggregation still run on the main thread; the service `Handler` also drives UI ticks and animation delays.
+- Backup document/JSON work and the new per-app usage-history query run on `Dispatchers.IO`. Existing calendar queries and the service's total screen-time aggregation still run on the main thread; the service `Handler` also drives UI ticks and animation delays.
 
 ## 4. Directory and module map
 
@@ -169,6 +182,12 @@ TimeHUD_cloud/
           Type.kt                      One customized bodyLarge typography style
         ui/backup/
           GoalBackupPanel.kt           Backup controls, status, and replace confirmation dialog
+        ui/navigation/
+          TimeHudDrawerScaffold.kt     Drawer destinations, top bar, and secondary-page Back handling
+        ui/usage/
+          AppUsageModels.kt            Pure foreground-interval aggregation and compact formatting
+          AppUsageRepository.kt        UsageStats query and installed-app label resolution
+          AppUsageScreen.kt            App-usage ViewModel, states, chart, and descending rows
       res/
         layout/overlay_passive.xml     Draggable screen-time bubble
         layout/overlay_active.xml      Full-screen check-in, agenda, modal, celebration layers
@@ -178,8 +197,16 @@ TimeHUD_cloud/
         xml/                            Backup/data-extraction template rules
     src/test/.../ExampleUnitTest.kt     Eight JVM unit tests
     src/test/.../GoalBackupTest.kt      Goal backup schema and calendar-exclusion JVM tests
+    src/test/.../AppUsageCalculatorTest.kt
+                                         App usage aggregation, boundary, and formatting tests
     src/androidTest/.../ExampleInstrumentedTest.kt
                                          Two device tests for package/component metadata
+    src/androidTest/.../MainNavigationTest.kt
+                                         Compose drawer-destination navigation test
+  store-assets/
+    timehud-play-store-icon-512.png     Play Console app icon
+    timehud-adaptive-foreground-source.png
+                                         Transparent source for the launcher mark
 ```
 
 There is no `README`, `Application` subclass, additional module, CI directory, navigation resource, flavor source set with content, or application documentation other than this file.
@@ -190,7 +217,9 @@ The overlay entries below are service-owned window layers rather than Android na
 
 | Screen/layer | Route or destination | Main source | ViewModel | Purpose and entry | Important actions | Data dependencies |
 |---|---|---|---|---|---|---|
-| Setup/control screen | Launcher `MAIN`/`LAUNCHER` -> `.MainActivity`; no named route | `MainActivity.kt`, Compose | None | First and only in-app activity; opened by launcher or foreground notification | Grant overlay/usage access, edit/save/backup goals, connect/import calendar, start/stop HUD | Android Settings/AppOps, goal/calendar/backup helpers, `OverlayServiceStateStore` |
+| Goals page | Launcher `MAIN`/`LAUNCHER` -> `.MainActivity`; `GOALS` drawer destination | `MainActivity.kt`, Compose | None | Default in-app page; opened by launcher, notification, drawer, or Back from a secondary page | Edit/save/backup goals, import calendar, start/stop HUD, open Permissions when required access is missing | Goal/calendar/backup helpers, `OverlayServiceStateStore` |
+| App usage page | `APP_USAGE` drawer destination | `ui/usage/`, Compose | `AppUsageViewModel` | Secondary page opened from the drawer | Refresh, inspect top-five chart, scroll every app longest-first, open Permissions when usage access is missing | `UsageStatsManager`, `PackageManager`, `AppUsageRepository` |
+| Permissions page | `PERMISSIONS` drawer destination, anchored at the bottom | `MainActivity.kt`, Compose | None | Secondary page opened from the drawer or missing-access actions | Grant overlay, usage, and optional calendar access | Android Settings/AppOps and runtime permission controller |
 | Goal Backup panel | Section within setup/control screen | `ui/backup/GoalBackupPanel.kt`, `MainActivity.kt` | None | Appears immediately below goal settings | Export current editor text; open and validate a JSON backup | Activity Result APIs, `GoalBackupFormat`, `GoalBackupStorage`, current editor state |
 | Replace Goals dialog | Compose `AlertDialog`; no route | `ui/backup/GoalBackupPanel.kt` | None | Appears only after a complete valid backup is read | Replace both saved/editor goal groups or cancel | Pending validated goal text and `GoalSettings` |
 | Screen-time bubble | No route; `WindowManager` overlay created by `OverlayService.showPassiveOverlay()` | `OverlayService.kt`, `BubblePositioning.kt`, `overlay_passive.xml` | Saved x/y position | Appears when the service starts and whenever active check-in closes | Drag to reposition; tap to open the active check-in | `UsageStatsManager`, `PowerManager`, `SharedPreferences` |
@@ -201,16 +230,16 @@ The overlay entries below are service-owned window layers rather than Android na
 | Usage access settings | External `Settings.ACTION_USAGE_ACCESS_SETTINGS` | `MainActivity.kt:115-119` | N/A | Opened from Usage Access card | User grants/denies special access | Android Settings |
 | Calendar permission dialog | Android runtime permission UI | `MainActivity.kt:197-215` | N/A | Opened by Connect/Import Calendar when needed | Grant/deny calendar read access | Android permission controller |
 
-There are no splash, onboarding, authentication, profile, conventional settings, detail, bottom-sheet, or navigation-drawer screens.
+There are no splash, onboarding, authentication, profile, conventional settings, detail, or bottom-sheet screens.
 
 ## 6. Navigation flow
 
 ### Navigation model
 
 - Start destination: exported `MainActivity`, declared with `singleTop` launch mode (`AndroidManifest.xml:24-35`).
-- There is no authentication gate, nested graph, bottom navigation, drawer, route parameter, or app link/deep link.
+- There is no authentication gate, nested navigation graph, bottom navigation, route parameter, or app link/deep link. A Material 3 drawer switches among three enum-backed Compose destinations without a navigation library.
 - The notification `PendingIntent` uses `NEW_TASK | SINGLE_TOP | CLEAR_TOP`, bringing the existing activity to the front when possible (`OverlayService.kt:114-125`).
-- The activity's Back behavior is default Android behavior: it leaves/finishes the activity. The foreground service and overlay continue until explicitly stopped or destroyed.
+- Back closes an open drawer first; from App usage or Permissions it returns to Goals; from Goals the default activity behavior leaves/finishes the activity. The foreground service and overlay continue until explicitly stopped or destroyed.
 - Starting/stopping does not navigate. Overlay windows are attached by the service independently of the activity.
 - Boot may start the service without opening an activity.
 - Logout does not exist.
@@ -218,10 +247,13 @@ There are no splash, onboarding, authentication, profile, conventional settings,
 
 ```text
 App icon or notification
-  -> MainActivity setup/control
-       -> Overlay permission card -> Android overlay settings -> resume MainActivity
-       -> Usage card -> Android usage-access settings -> resume MainActivity
-       -> Calendar button -> runtime permission dialog -> import into editor
+  -> MainActivity -> Goals (default)
+       -> hamburger -> App usage -> local 3:00 AM usage chart and descending list
+       -> hamburger -> Permissions
+            -> Overlay permission card -> Android overlay settings -> resume MainActivity
+            -> Usage card -> Android usage-access settings -> resume MainActivity
+            -> Calendar card -> runtime permission dialog -> resume MainActivity
+       -> Calendar button -> import into editor when calendar access is granted
        -> Export Goals -> system create-document picker -> write goal-only JSON
        -> Import Goals -> system open-document picker
             -> invalid/unreadable -> inline error; no data change
@@ -249,6 +281,7 @@ Device boot or app replacement
 | Owner | State exposed/held | Inputs/events | Restoration and fragility |
 |---|---|---|---|
 | `TimeHUDScreen` composable | Permission flags; short/long editor strings; save/calendar/backup status; pending picker snapshots and validated import; collected service state | Permission taps, edits, calendar import, backup export/import/confirmation, start/stop, resume | Goal editor and pending backup state use `rememberSaveable`; file I/O uses a composition coroutine scope and returns to main state. A confirmed restore writes and updates both editor fields together, preventing pre-import editor text from being re-saved. The older service-side goal-removal divergence remains outside this flow. |
+| `AppUsageViewModel` | Loading, ready/empty, permission-required, and unavailable states plus sorted app entries | Page composition/resume and manual Refresh | Activity-scoped ViewModel cancels a previous refresh before starting a new `Dispatchers.IO` query. Results are not persisted. |
 | `OverlayServiceStateStore` | `StateFlow<OverlayServiceUiState>` with `isRunning` and derived `primaryAction` | `markRunning()`, `markStopped()` from service lifecycle | Process-local only. It is sufficient for the current same-process activity/service but is not an authoritative cross-process/persistent service monitor. |
 | `StartupPreferences` | Persistent `hud_active` boolean | Service `onStartCommand` marks true; explicit activity stop marks false | Used for boot restart intent. `OverlayService.onDestroy()` intentionally does not clear it, so system destruction still leaves restart intent set. |
 | `OverlayService` | Current overlay views, active/passive flag, last bucket, goal snapshot, goal mode | 10-second tick; switch, close, and goal-row clicks | Plain fields; not restored after service/process recreation. Restart resets the bucket and can immediately show active UI. |
@@ -256,7 +289,7 @@ Device boot or app replacement
 | `GoalBackupFormat` / `GoalBackupStorage` | Versioned goal-only JSON and typed read/write results | Serialize current editor snapshot; validate selected document | Parsing produces no goal object until every required field is valid. Unknown fields are ignored. URI access is one-time and streams are always closed. |
 | `GoalCompletionStore` | Set of normalized goal keys plus stored date | Complete/uncomplete goal | Daily by local `yyyy-MM-dd`; old stored keys remain on disk but are ignored after the date changes until a new completion is saved. |
 
-There is no LiveData, Redux/MVI intent model, one-time event channel, snackbar system, or general error state. Calendar and backup status are rendered inline; backup also disables its actions while file work runs. Empty goals produce `- No goals saved yet`; empty calendar hides the agenda or reports “No visible calendar events today.”
+There is no LiveData, Redux/MVI intent model, one-time event channel, snackbar system, or app-wide error state. App usage has focused loading/empty/permission/error states; calendar and backup status are rendered inline. Empty goals produce `- No goals saved yet`; empty calendar hides the agenda or reports “No visible calendar events today.”
 
 ## 8. Data layer
 
@@ -308,6 +341,8 @@ Schema:
 - `queryScreenTimeMs()` reads `UsageStatsManager.queryEvents()` from the most recent 3:00 AM boundary, looking for numeric event types 15 and 16 (screen interactive/non-interactive), and uses `PowerManager.isInteractive` for an empty/current interval edge case (`OverlayService.kt:542-593`).
 - There is no caching; the entire period is queried again every 10 seconds on the main thread.
 - There is no structured error mapping, retry policy, telemetry, or test coverage for this algorithm.
+- The App usage page separately reads per-package foreground/background events from the most recent 3:00 AM boundary on `Dispatchers.IO`. It totals intervals per package, resolves an application label when Android permits it, sorts by duration descending, and falls back to the package name when a label is unavailable.
+- Per-app results are refreshed on page entry/resume or by the Refresh button and are not persisted. The screen models permission-required, loading, empty, unavailable, and success states; pure aggregation/boundary/formatting behavior has JVM tests.
 
 ### Network/API/database status
 
@@ -317,7 +352,7 @@ There are no API clients, base URLs, endpoints, network DTOs, repositories, Room
 
 | Integration | Purpose | Configuration and interacting files | Secrets/config keys | Status |
 |---|---|---|---|---|
-| Android Usage Access/AppOps | Permission gate and screen-interactive event access | Manifest `PACKAGE_USAGE_STATS`; `MainActivity.kt:90-113`; `BootReceiver.kt:42-49`; `OverlayService.kt:542-593` | None | Implemented, but API-level compatibility is broken below 29. |
+| Android Usage Access/AppOps | Permission gate, screen-interactive events, and per-app foreground history | Manifest `PACKAGE_USAGE_STATS`; `MainActivity.kt`; `BootReceiver.kt`; `OverlayService.kt`; `ui/usage/` | None | Implemented with API 24-28 permission-check fallback; lower-API and real-device app-history behavior still need manual coverage. |
 | Android `WindowManager` overlays | Passive and active HUD over other apps | Manifest `SYSTEM_ALERT_WINDOW`; permission intent in `MainActivity`; overlay creation in `OverlayService.kt:128-212` | None | Implemented; permission-revocation failures are not caught. |
 | Android Calendar Provider | Optional import and live agenda | Manifest `READ_CALENDAR`; `MainActivity.kt:148-179`; `CalendarAgenda.kt`; `OverlayService.kt:175,491-509` | None | Implemented read-only. Query failures are treated as empty data. |
 | Android foreground-service notification | Keeps service foreground and returns to app | Manifest foreground-service permissions/type; `OverlayService.kt:55-125`; strings resources | None | Implemented. Runtime notification permission handling is missing. |
@@ -337,8 +372,8 @@ The `hud_active` startup preference is only a local service-restart preference; 
 | Manifest permission | Why/where used | Request/handling | Refusal behavior |
 |---|---|---|---|
 | `SYSTEM_ALERT_WINDOW` | Add HUD windows through `WindowManager` | Special-access intent from `requestOverlayPermission()`; checked with `Settings.canDrawOverlays()` | Start button stays disabled. If revoked while running, overlay calls are not guarded and may fail. |
-| `PACKAGE_USAGE_STATS` | Read usage events for screen time | Usage-access Settings intent; checked through `AppOpsManager` | Start button stays disabled; boot restart is skipped. Current check calls an API unavailable on API 24-28. |
-| `READ_CALENDAR` | Query today's visible calendar instances | Runtime `RequestPermission` launcher only when import is tapped | Inline “Calendar permission denied”; HUD still works and agenda query returns empty. |
+| `PACKAGE_USAGE_STATS` | Read usage events for screen time | Usage-access Settings intent; checked through `AppOpsManager` with an API-level-compatible fallback | Start button stays disabled; boot restart is skipped. |
+| `READ_CALENDAR` | Query today's visible calendar instances | Optional runtime request on the Permissions page; Goals imports after access is granted | Inline denial/status message; HUD still works and agenda query returns empty. |
 | `FOREGROUND_SERVICE` | Run `OverlayService` persistently | Normal install permission; no prompt | No custom refusal path. |
 | `FOREGROUND_SERVICE_SPECIAL_USE` | Target-36 special-use foreground-service type | Declared with `foregroundServiceType="specialUse"` and explanatory property (`AndroidManifest.xml:47-54`) | No runtime UI; release policy/declaration requirements are outside this repo. |
 | `POST_NOTIFICATIONS` | Permit foreground notification visibility on Android 13+ | Declared only; no runtime request exists | App does not explain or react to denial. Foreground-service UX/visibility can be reduced depending on platform behavior. |
@@ -395,7 +430,7 @@ Other platform usage:
 ### Open and run
 
 1. Open the repository root in Android Studio and allow Gradle sync.
-2. Select the `app` configuration and an API 24+ emulator/device. Until the API compatibility bug is fixed, use API 29+ to avoid the known `unsafeCheckOpNoThrow` crash path.
+2. Select the `app` configuration and an API 24+ emulator/device.
 3. Run the debug app.
 4. For a meaningful manual test, use a physical device or emulator image that supports Usage Access and overlay special-access screens. Calendar testing requires at least one local calendar/event.
 5. Grant overlay and usage access in the app. Calendar permission is optional.
@@ -409,7 +444,7 @@ Other platform usage:
 # JVM unit tests
 ./gradlew testDebugUnitTest
 
-# Android lint (currently fails; see Testing status)
+# Android lint
 ./gradlew lintDebug
 
 # Compile the instrumented-test APK without running it
@@ -433,27 +468,27 @@ No ktlint, detekt, Spotless, or other formatting task is configured. In a restri
 - Namespace: `com.boringutils.timehud` (`app/build.gradle.kts:7`).
 - Application ID for all variants: `com.boringutils.timehud` (`app/build.gradle.kts:15`).
 - Identity migration: this replaces the former `com.example.timehud.cloud` application ID. Android treats the new ID as a different installed application, so preferences, goal data, granted special/runtime permissions, and HUD startup state from an older installation do not transfer automatically. The old and new packages can coexist until the old app is uninstalled.
-- Version: code `1`, name `1.0` (`app/build.gradle.kts:18-19`).
+- Version: code `4`, name `1.3` (`app/build.gradle.kts:18-19`).
 - Variants: default `debug` and `release`; no product flavors or environment-specific source/config values.
 - Release enables R8 code minification and resource shrinking and uses optimized default ProGuard rules plus an unchanged template `proguard-rules.pro` (`app/build.gradle.kts:24-32`).
 - No signing configuration exists. `assembleRelease` produces `app/build/outputs/apk/release/app-release-unsigned.apk`.
-- No Play Store metadata, package publishing plugin, release notes, privacy policy, CI/CD, or deployment configuration is present.
+- `bundleRelease` produces `app/build/outputs/bundle/release/app-release.aab`; the generated bundle is unsigned until a production keystore is supplied through Android Studio or a secure release-signing configuration.
+- No complete Play Store metadata, package publishing plugin, release notes, privacy policy, CI/CD, or deployment configuration is present. The app icon asset is available under `store-assets/`.
 - No environment-specific backend URL exists because there is no backend.
 
 Production blockers/concerns:
 
 1. Release signing and a secure secret-management process are absent.
-2. Debug lint fails on two genuine min-SDK API errors.
-3. Runtime notification-permission handling is absent.
-4. Special-use foreground service, overlay, usage access, and calendar access need Play-policy/privacy review and clear user disclosure.
-5. There is no automated CI gate or reproducible release checklist.
-6. The declared old Compose BOM is not actually controlling all resolved Compose versions; UI resolves to `1.9.2` while Material 3 remains `1.3.0`.
+2. Runtime notification-permission handling is absent.
+3. Special-use foreground service, overlay, usage access, and calendar access need Play-policy/privacy review and clear user disclosure.
+4. There is no automated CI gate or reproducible release checklist.
+5. The declared old Compose BOM is not actually controlling all resolved Compose versions; UI resolves to `1.9.2` while Material 3 remains `1.3.0`.
 
 ## 15. Testing status
 
 ### Existing tests
 
-`app/src/test/java/com/boringutils/timehud/ExampleUnitTest.kt` contains eight passing JVM tests:
+`app/src/test/java/com/boringutils/timehud/ExampleUnitTest.kt` contains 12 passing JVM tests:
 
 - Start/stop primary-action derivation.
 - Calendar-section append, replacement, and empty behavior.
@@ -463,12 +498,15 @@ Production blockers/concerns:
 
 `app/src/test/java/com/boringutils/timehud/GoalBackupTest.kt` contains 14 passing JVM tests covering multiline and empty round trips; quotes, backslashes, Unicode, punctuation, and newlines; calendar-section exclusion and manual ordering; empty/invalid JSON; wrong identifiers; unsupported versions; missing/type-invalid fields; ignored unknown fields; and all-or-nothing parse failure.
 
+`app/src/test/java/com/boringutils/timehud/AppUsageCalculatorTest.kt` contains six passing JVM tests covering repeated foreground intervals, an app already active at the period boundary, an app still active at refresh time, duplicate background events, compact duration formatting, and the pre-3:00 AM previous-day boundary.
+
 `app/src/androidTest/java/com/boringutils/timehud/ExampleInstrumentedTest.kt` contains two device tests:
 
 - Application package name.
 - Manifest registration/export status for `BootReceiver` and `OverlayService`.
+- Passive overlay bubble interaction metadata.
 
-Despite template-style class names, these tests now contain project-specific assertions. There are no Compose UI tests, service/overlay tests, permission-flow tests, ViewModel tests, repository tests, mocks/fakes, screenshot tests, or end-to-end tests.
+`MainNavigationTest.kt` adds one Compose UI test that opens App usage and Permissions through the drawer. It compiles into the Android-test APK but still requires a connected device/emulator to execute. There are no service-lifecycle, permission-grant/revoke, ViewModel, repository-platform, mock/fake, screenshot, or end-to-end tests.
 
 ### Verification performed on 2026-07-11
 
@@ -484,17 +522,37 @@ Despite template-style class names, these tests now contain project-specific ass
 | `./gradlew --gradle-user-home .gradle-work testDebugUnitTest assembleDebug assembleDebugAndroidTest assembleRelease` | Passed after package rename | All 22 JVM tests passed under `com.boringutils.timehud`; debug, instrumented-test, and minified unsigned release APKs assembled. Output metadata confirms app ID `com.boringutils.timehud` and test app ID `com.boringutils.timehud.test`. |
 | `./gradlew --gradle-user-home .gradle-work lintDebug` | Failed on unchanged baseline after package rename | Still exactly 2 errors and 43 warnings, now referencing the moved `com/boringutils/timehud` sources. |
 
-Lint's two errors are the unguarded calls to API-29 `AppOpsManager.unsafeCheckOpNoThrow()` in `BootReceiver.kt:44` and `MainActivity.kt:98` while min SDK is 24. Notable warning groups include hardcoded/non-localizable text, one keyboard-inaccessible clickable view, unused resources, null-root layout inflation, redundant SDK checks, dependency-version notices, and KTX suggestions. Full generated report: `app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt`.
+The two API compatibility errors recorded in the 2026-07-11 runs were later fixed by guarding `unsafeCheckOpNoThrow()` and using `checkOpNoThrow()` on API 24-28. Other warning groups included hardcoded/non-localizable text, one keyboard-inaccessible clickable view, unused resources, null-root layout inflation, redundant SDK checks, dependency-version notices, and KTX suggestions. Generated report: `app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt`.
+
+### Verification performed on 2026-08-24
+
+| Command/check | Result | Notes |
+|---|---|---|
+| `./gradlew --gradle-user-home .gradle-work lintDebug` | Passed | The guarded API-29 call and API 24-28 fallback clear the prior two lint errors. |
+| `./gradlew --gradle-user-home .gradle-work testDebugUnitTest assembleDebug assembleDebugAndroidTest bundleRelease` | Passed | JVM tests passed; debug APK and instrumented-test APK compiled; minified release AAB built with release lint-vital checks. |
+| Release manifest metadata | Passed | Confirms application ID `com.boringutils.timehud`, version code `4`, and version name `1.3`. |
+| `jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab` | Unsigned as expected | A production keystore is not configured; the bundle must be signed before Play Console upload. |
+
+### Verification performed on 2026-09-01
+
+| Command/check | Result | Notes |
+|---|---|---|
+| `./gradlew --gradle-user-home .gradle-work testDebugUnitTest` | Passed | All 32 JVM tests passed, including the six new per-app usage aggregation/boundary/formatting tests. |
+| `./gradlew --gradle-user-home .gradle-work lintDebug assembleDebug assembleDebugAndroidTest` | Passed | Lint completed with zero errors and 41 warnings; the debug APK and Android-test APK compiled. The Compose drawer test was compiled but not run because no connected device/emulator was used. |
+| `./gradlew --gradle-user-home .gradle-work assembleRelease` | Passed | The minified and resource-shrunk unsigned release APK compiled with the new lifecycle dependency. Android's native-library stripping task emitted its existing non-fatal `libandroidx.graphics.path.so` packaging note. |
+| `adb devices` | No attached devices | The drawer test and real Usage Access/provider behavior could not be executed in this workspace. |
+| `git diff --check` | Passed | No whitespace errors were introduced. |
 
 ### Coverage gaps
 
-The most important untested behavior is also the most failure-prone: screen-time aggregation and boundary cases; five-minute triggering; foreground-service lifecycle/restart; overlay add/remove behavior; permission grant/revoke; notification behavior; boot receiver decision logic; real SharedPreferences date rollover; calendar-provider failures; active modal/accessibility behavior; state synchronization between the activity and service; and actual system-picker/`ContentResolver` backup UI flows. Backup schema/text behavior is strongly unit-tested, but picker and provider behavior still needs manual/device coverage.
+The most important untested behavior is also the most failure-prone: total screen-time aggregation and boundary cases; five-minute triggering; foreground-service lifecycle/restart; overlay add/remove behavior; permission grant/revoke; real-device/vendor `UsageStatsManager` event completeness and label visibility; notification behavior; boot receiver decision logic; real SharedPreferences date rollover; calendar-provider failures; active modal/accessibility behavior; state synchronization between the activity and service; and actual system-picker/`ContentResolver` backup UI flows. App-time aggregation and backup schema/text behavior are unit-tested, but platform providers and the compiled navigation test still need device coverage.
 
 ## 16. Current implementation status
 
 ### Fully implemented in source
 
-- Single setup/control activity and permission status refresh.
+- Single activity with a hamburger drawer, Goals default page, App usage secondary page, Permissions bottom destination, and permission status refresh.
+- Local per-app foreground-time graph and longest-first rows using the 3:00 AM boundary, explicit loading/empty/error states, and manual refresh.
 - Foreground overlay service, draggable bubble, active check-in, notification, explicit stop.
 - Local goal editing, defaults, persistence, daily completion, undo/removal, and celebration UI.
 - Manual goal-only JSON export and validated, confirmed replacement import through the system document picker.
@@ -506,7 +564,7 @@ The most important untested behavior is also the most failure-prone: screen-time
 
 ### Partial/fragile functionality
 
-- API 24-28 are declared supported but call an API introduced in 29 (`MainActivity.kt:98`, `BootReceiver.kt:44`).
+- API 24-28 usage-access behavior has a compatible code path but has not been exercised on physical devices or emulators in this workspace.
 - Notification permission is manifest-only (`AndroidManifest.xml:8`); no `POST_NOTIFICATIONS` launcher exists.
 - Calendar errors and empty calendars are indistinguishable (`CalendarAgenda.kt:59-77`). Imported calendar text is a manual snapshot and can remain stale on later days.
 - Service state is split between an in-memory StateFlow and persistent desired-start preference, with no OS-level service query.
@@ -523,7 +581,6 @@ The most important untested behavior is also the most failure-prone: screen-time
 
 ### Known behavioral issues supported by code
 
-- On API 24-28, permission checking can fail at runtime due to the API-29 method call.
 - If the service removes a goal while `MainActivity` remains alive behind the overlay, the activity's independent saved editor state is not refreshed; a later Save/Start can restore the removed line.
 - Saving imported calendar text still causes the literal `Calendar Today` header and event lines to be parsed as checkable goals in the live editor/HUD, with only the first eight total lines shown. Manual goal backups specifically exclude that generated section (`CalendarAgenda.kt:25-35`, `GoalBackup.kt:18-27`).
 - Restarting the service after five minutes of accumulated usage can immediately open the active overlay because the last bucket is not persisted.
@@ -550,9 +607,13 @@ The most important untested behavior is also the most failure-prone: screen-time
 | `res/layout/overlay_passive.xml` | Passive timer structure | Always-visible runtime UI | `OverlayService` |
 | `ui/theme/Theme.kt` | Compose Material theme selection | Defines theme defaults, though activity overrides many values | `MainActivity`, color/type files |
 | `ui/backup/GoalBackupPanel.kt` | Backup controls, status messages, and confirmation dialog | Owns the user-facing backup surface | `MainActivity`, string resources |
-| `ExampleUnitTest.kt` | Eight existing pure behavior tests | Covers calendar, goals, completion keys, and service UI state | Calendar, goals, completion keys, service UI state |
+| `ui/navigation/TimeHudDrawerScaffold.kt` | Drawer and enum-backed page switching | Separates setup, usage, and permission concerns without a route dependency | `MainActivity`, Back handling |
+| `ui/usage/` | Per-app usage aggregation, platform query, ViewModel, and Compose presentation | Owns the new chart/list feature and keeps provider work off the main thread | `UsageStatsManager`, `PackageManager`, Lifecycle ViewModel |
+| `ExampleUnitTest.kt` | Twelve existing pure behavior tests | Covers calendar, goals, completion keys, bubble positioning, triggers, and service UI state | Calendar, goals, completion keys, overlay helpers, service UI state |
 | `GoalBackupTest.kt` | Fourteen backup codec/text tests | Protects schema compatibility, special characters, exclusion, and error atomicity | `GoalBackup`, `CalendarGoalSection`, test-only `org.json` runtime |
-| `ExampleInstrumentedTest.kt` | Package/manifest device tests | Only instrumented coverage | Built manifest and Android package manager |
+| `AppUsageCalculatorTest.kt` | Six per-app usage tests | Protects interval aggregation, reset boundary, duplicate handling, and display formatting | `AppUsageCalculator`, duration helpers |
+| `ExampleInstrumentedTest.kt` | Package/manifest/bubble device tests | Basic Android component and overlay metadata coverage | Built manifest, Android package manager, overlay XML |
+| `MainNavigationTest.kt` | Drawer Compose UI test | Checks that App usage and Permissions are reachable | `MainActivity`, Compose test runtime |
 
 Future work on screen-time behavior should read `OverlayService.kt`, `AndroidManifest.xml`, `MainActivity.kt`, and the overlay layouts together. Goal/calendar changes should also read all three preference/helper files because normalized strings are shared identifiers.
 
@@ -560,7 +621,7 @@ Future work on screen-time behavior should read `OverlayService.kt`, `AndroidMan
 
 | Severity | Risk | Evidence and impact |
 |---|---|---|
-| **High** | Declared min SDK is false in practice | `unsafeCheckOpNoThrow()` requires API 29 but is called unguarded in activity and receiver. Lint fails; API 24-28 can crash during normal permission checks. |
+| **Medium** | API 24-28 permission fallback lacks device coverage | Both permission checks use the compatible `checkOpNoThrow()` path below API 29, but this branch has only static/lint verification in this workspace. |
 | **High** | No production signing/release process | Release APK is unsigned; no keystore indirection, CI, store configuration, or release checklist exists. Production delivery is not reproducible. |
 | **High** | Main-thread period-wide usage query | Every 10 seconds, `queryScreenTimeMs()` scans usage events from 3:00 AM on the main looper (`OverlayService.kt:519-593`). Large histories or slow providers can delay overlay UI/service responsiveness and risk ANRs. Calendar queries also run on the main thread. |
 | **High** | Sensitive platform capabilities lack production/privacy hardening | Always-on-top UI, usage history, calendar data, boot restart, and special-use foreground service have no onboarding rationale, privacy policy/store declaration, or denial/revocation recovery in repo. This is a policy and trust risk. |
@@ -599,7 +660,7 @@ These rules reflect the existing small architecture while addressing its actual 
 14. Centralize user-visible strings, colors, spacing, and accessibility semantics. Test large font, TalkBack/keyboard, RTL, small screens, light/dark mode, and overlay insets.
 15. Add every new permission to a documented grant/deny/revoke flow; manifest declaration alone is insufficient.
 16. Add unit tests for new pure logic, device/UI tests for manifest/permission/navigation/overlay behavior, and regression tests for screen-time boundaries and persistence migration.
-17. Before committing, run at minimum `testDebugUnitTest`, `lintDebug`, `assembleDebug`, `assembleRelease`, and `assembleDebugAndroidTest`; run `connectedDebugAndroidTest` on an attached API-29+ device. Lint must be made green rather than baselining the two current API errors.
+17. Before committing, run at minimum `testDebugUnitTest`, `lintDebug`, `assembleDebug`, `bundleRelease`, and `assembleDebugAndroidTest`; run `connectedDebugAndroidTest` on attached API 24/28/29+ devices where available.
 18. Keep release signing values outside source control and document the secure CI/release path before store distribution.
 19. Preserve goal-backup identifier `timehud-goals` and schema version `1`. Add a new schema version and backward-compatible parser deliberately; never add completion, calendar, service, permission, usage, device, or unrelated configuration data to this goal-only format.
 
@@ -609,10 +670,10 @@ Do not treat this list as work already completed.
 
 ### Critical fixes
 
-1. Replace/guard `unsafeCheckOpNoThrow()` with a min-SDK-safe usage-access check in both `MainActivity` and `BootReceiver`; add API 24/28/29+ tests and make lint pass.
+1. Exercise the guarded usage-access check on API 24/28/29+ devices and add regression coverage for both platform branches.
 2. Move usage-event and calendar-provider queries off the main thread and isolate/test the screen-time state machine, including 3:00 AM, first-event, currently interactive, restart, and bucket-boundary cases.
 3. Catch overlay/service permission failures and provide a recovery path when special access is revoked while running.
-4. Define a production signing and secret-management process; do not distribute the current unsigned release artifact.
+4. Define a production signing and secret-management process; do not distribute unsigned release artifacts.
 
 ### Important improvements
 
