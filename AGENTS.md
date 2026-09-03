@@ -260,7 +260,7 @@ Preserve these unless the request explicitly changes them.
 
 - App limits use the same 3:00 AM daily boundary as app usage.
 - Usage Access seeds the current daily total; subsequent enforcement time is accumulated from the focused accessibility window so a visible background app does not gain focused time behind a Samsung pop-up.
-- In-app recognition is intentionally limited to supported English navigation labels, window titles, and view identifiers: YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Explore. Unknown sections must not be described as confidently recognized.
+- In-app recognition is intentionally limited to supported English navigation labels, window titles, and view identifiers: YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Videos/Explore. Unknown sections must not be described as confidently recognized.
 - When an individual Instagram chat is confidently recognized through thread/composer signals, the open-chat exemption takes priority over section and daily-limit blocking. The Messages inbox itself is not exempt when Instagram section blocking is configured.
 - An actively selected/current Instagram Stories, Reels, or Explore surface must beat a stale Messages container left in the accessibility tree; an actively selected Messages tab is classified as either inbox or open thread rather than receiving a blanket exemption.
 - Blocking overlays cover only the target window's exposed regions; higher-layer pop-up/system windows must remain visible and interactive.

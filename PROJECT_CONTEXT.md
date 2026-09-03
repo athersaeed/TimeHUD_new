@@ -28,7 +28,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 9. The persistent notification opens `MainActivity`. **Stop HUD** stops the service and clears the restart preference (`OverlayService.kt:100-125`, `MainActivity.kt:130-132`).
 10. If the HUD was marked active, boot or package replacement attempts to restart it when overlay and usage permissions are still present (`BootReceiver.kt:17-35`).
 11. Open **App usage** to refresh a top-five horizontal bar chart and a full longest-first list of per-app foreground time since the same 3:00 AM boundary. This history is read locally through `UsageStatsManager` and is not persisted or uploaded (`ui/usage/`).
-12. Open **App limits** to search by app name or package and configure daily focused-use limits for launchable apps. Configured and recently used apps sort first. Supported per-section controls are YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Explore. Instagram can exempt an actually open chat, while the Messages inbox itself still shows the check-in when section blocking is configured. Enabling the optional TimeHUD accessibility service applies those rules independently of whether the HUD foreground service is running. Blocked content shows the same timer, agenda, and goals check-in used by the HUD; its Close button unlocks after five seconds and sends the user to Android Home (`ActiveOverlayContentController.kt`, `ui/blocking/`, `blocking/`).
+12. Open **App limits** to search by app name or package and configure daily focused-use limits for launchable apps. Configured and recently used apps sort first. Supported per-section controls are YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Videos/Explore. Instagram can exempt an actually open chat, while the Messages inbox itself still shows the check-in when section blocking is configured. Enabling the optional TimeHUD accessibility service applies those rules independently of whether the HUD foreground service is running. Blocked content shows the same timer, agenda, and goals check-in used by the HUD; its Close button unlocks after five seconds and sends the user to Android Home (`ActiveOverlayContentController.kt`, `ui/blocking/`, `blocking/`).
 13. The accessibility service observes all interactive windows, classifies supported navigation state locally, and draws touch-blocking accessibility-overlay pieces over only the exposed portion of a limited window. Higher-layer Samsung Pop-up View, split-screen, keyboard, and system-window rectangles are subtracted so they remain usable.
 
 ### Features confirmed in the current source
@@ -599,13 +599,13 @@ The two API compatibility errors recorded in the 2026-07-11 runs were later fixe
 | `adb devices` | No attached devices | Accessibility enablement, real supported-app view identifiers, Samsung Pop-up View layering, split-screen, rule enforcement, and the compiled device tests were not run. |
 | `git diff --check` | Passed | No whitespace errors were introduced. |
 
-### Verification performed on 2026-09-03 for App limits search
+### Verification performed on 2026-09-03 for App limits search and X Videos
 
 | Command/check | Result | Notes |
 |---|---|---|
-| `./gradlew --gradle-user-home .gradle-work testDebugUnitTest` | Passed | All 50 JVM tests passed, including four App limits search-filter tests. |
+| `./gradlew --gradle-user-home .gradle-work testDebugUnitTest` | Passed | All 53 JVM tests passed, including four App limits search-filter tests and X Videos option, decision, classifier, and stale-node priority coverage. |
 | `./gradlew --gradle-user-home .gradle-work lintDebug assembleDebug assembleDebugAndroidTest` | Passed | Lint, the debug APK, and Android-test APK compilation completed successfully. |
-| `adb devices` | No attached devices | The search field, keyboard action, recreation behavior, and no-results card were not exercised on a device or emulator. |
+| `adb devices` | No attached devices | The search UI and real X Videos/Explore accessibility labels and view identifiers were not exercised on a device or emulator. |
 | `git diff --check` | Passed | No whitespace errors were introduced. |
 
 ### Coverage gaps
@@ -680,7 +680,7 @@ The most important untested behavior is also the most failure-prone: total scree
 | `ExampleUnitTest.kt` | Twelve existing pure behavior tests | Covers calendar, goals, completion keys, bubble positioning, triggers, and service UI state | Calendar, goals, completion keys, overlay helpers, service UI state |
 | `GoalBackupTest.kt` | Fourteen backup codec/text tests | Protects schema compatibility, special characters, exclusion, and error atomicity | `GoalBackup`, `CalendarGoalSection`, test-only `org.json` runtime |
 | `AppUsageCalculatorTest.kt` | Six per-app usage tests | Protects interval aggregation, reset boundary, duplicate handling, and display formatting | `AppUsageCalculator`, duration helpers |
-| `AppBlockingTest.kt` | Twelve pure app-blocking tests | Protects decision priority, all supported option/classifier mappings, limits, and pop-up region subtraction | `AppBlockDecisionEngine`, `AppSurfaceClassifier`, `VisibleRegionCalculator` |
+| `AppBlockingTest.kt` | Fifteen pure app-blocking tests | Protects decision priority, all supported option/classifier mappings, limits, and pop-up region subtraction | `AppBlockDecisionEngine`, `AppSurfaceClassifier`, `VisibleRegionCalculator` |
 | `AppBlockingScreenTest.kt` | Four pure App limits search tests | Protects blank-query ordering, app-name/package matching, and no-result filtering | `BlockableAppUi`, `filterBlockableApps` |
 | `ExampleInstrumentedTest.kt` | Package/manifest/bubble device tests | Basic Android component and overlay metadata coverage | Built manifest, Android package manager, overlay XML |
 | `MainNavigationTest.kt` | Drawer Compose UI test | Checks that App usage, App limits, and Permissions are reachable | `MainActivity`, Compose test runtime |

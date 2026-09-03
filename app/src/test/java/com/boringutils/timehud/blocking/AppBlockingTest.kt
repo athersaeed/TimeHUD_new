@@ -35,6 +35,19 @@ class AppBlockingTest {
     }
 
     @Test
+    fun configured_x_videos_surface_blocks_before_daily_limit() {
+        val rule = rule(
+            packageName = X_PACKAGE,
+            blockedSurfaces = setOf(AppSurface.X_VIDEOS)
+        )
+
+        assertEquals(
+            BlockDecision.Block(BlockReason.X_VIDEOS),
+            AppBlockDecisionEngine.decide(rule, focusedUsageMs = 0L, AppSurface.X_VIDEOS)
+        )
+    }
+
+    @Test
     fun daily_limit_blocks_other_app_surfaces_at_boundary() {
         val rule = rule(packageName = "example.app", dailyLimitMinutes = 15)
 
@@ -71,7 +84,10 @@ class AppBlockingTest {
             listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES),
             supportedSurfacesFor(SNAPCHAT_PACKAGE)
         )
-        assertEquals(listOf(AppSurface.EXPLORE), supportedSurfacesFor(X_PACKAGE))
+        assertEquals(
+            listOf(AppSurface.X_VIDEOS, AppSurface.EXPLORE),
+            supportedSurfacesFor(X_PACKAGE)
+        )
     }
 
     @Test
@@ -93,7 +109,9 @@ class AppBlockingTest {
             Triple(FACEBOOK_PACKAGE, signals(selected = "marketplace"), AppSurface.MARKETPLACE),
             Triple(SNAPCHAT_PACKAGE, signals(selected = "spotlight"), AppSurface.SPOTLIGHT),
             Triple(SNAPCHAT_PACKAGE, signals(viewId = "stories_feed"), AppSurface.STORIES),
-            Triple(X_PACKAGE, signals(viewId = "explore_timeline"), AppSurface.EXPLORE)
+            Triple(X_PACKAGE, signals(viewId = "explore_timeline"), AppSurface.EXPLORE),
+            Triple(X_PACKAGE, signals(selected = "videos"), AppSurface.X_VIDEOS),
+            Triple(X_PACKAGE, signals(viewId = "immersive_video_timeline"), AppSurface.X_VIDEOS)
         )
 
         cases.forEach { (packageName, signals, expected) ->
@@ -157,6 +175,26 @@ class AppBlockingTest {
         )
 
         assertEquals(AppSurface.REELS, surface)
+    }
+
+    @Test
+    fun selected_x_videos_beats_a_stale_explore_container() {
+        val surface = AppSurfaceClassifier.classify(
+            X_PACKAGE,
+            signals(selected = "videos", viewId = "explore_timeline")
+        )
+
+        assertEquals(AppSurface.X_VIDEOS, surface)
+    }
+
+    @Test
+    fun selected_x_explore_beats_a_stale_videos_container() {
+        val surface = AppSurfaceClassifier.classify(
+            X_PACKAGE,
+            signals(selected = "explore", viewId = "immersive_video_timeline")
+        )
+
+        assertEquals(AppSurface.EXPLORE, surface)
     }
 
     @Test

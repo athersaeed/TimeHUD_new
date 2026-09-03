@@ -27,6 +27,7 @@ internal enum class AppSurface {
     REELS,
     STORIES,
     EXPLORE,
+    X_VIDEOS,
     MARKETPLACE,
     SPOTLIGHT,
     OTHER,
@@ -51,7 +52,7 @@ internal fun supportedSurfacesFor(packageName: String): List<AppSurface> = when 
         AppSurface.MARKETPLACE
     )
     SNAPCHAT_PACKAGE -> listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES)
-    X_PACKAGE -> listOf(AppSurface.EXPLORE)
+    X_PACKAGE -> listOf(AppSurface.X_VIDEOS, AppSurface.EXPLORE)
     else -> emptyList()
 }
 
@@ -65,6 +66,7 @@ internal enum class BlockReason {
     REELS,
     STORIES,
     EXPLORE,
+    X_VIDEOS,
     MARKETPLACE,
     SPOTLIGHT
 }
@@ -111,6 +113,7 @@ internal object AppBlockDecisionEngine {
         AppSurface.REELS -> BlockReason.REELS
         AppSurface.STORIES -> BlockReason.STORIES
         AppSurface.EXPLORE -> BlockReason.EXPLORE
+        AppSurface.X_VIDEOS -> BlockReason.X_VIDEOS
         AppSurface.MARKETPLACE -> BlockReason.MARKETPLACE
         AppSurface.SPOTLIGHT -> BlockReason.SPOTLIGHT
         AppSurface.MESSAGE_INBOX,
@@ -221,8 +224,20 @@ internal object AppSurfaceClassifier {
     }
 
     private fun classifyX(signals: AppUiSignals): AppSurface = when {
-        signals.hasSelectedLabel("explore", "search and explore") ||
-            signals.hasViewId("explore_tab", "search_timeline", "explore_timeline") -> {
+        signals.hasSelectedLabel("video", "videos", "video tab", "videos tab") -> {
+            AppSurface.X_VIDEOS
+        }
+        signals.hasSelectedLabel("explore", "search and explore") -> AppSurface.EXPLORE
+        signals.hasViewId(
+            "video_tab",
+            "videos_tab",
+            "video_timeline",
+            "videos_timeline",
+            "immersive_video_tab",
+            "immersive_video_timeline",
+            "vertical_video_timeline"
+        ) -> AppSurface.X_VIDEOS
+        signals.hasViewId("explore_tab", "search_timeline", "explore_timeline") -> {
             AppSurface.EXPLORE
         }
         else -> AppSurface.OTHER
