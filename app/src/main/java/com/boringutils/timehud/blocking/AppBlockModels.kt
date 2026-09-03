@@ -27,7 +27,6 @@ internal enum class AppSurface {
     REELS,
     STORIES,
     EXPLORE,
-    X_VIDEOS,
     MARKETPLACE,
     SPOTLIGHT,
     OTHER,
@@ -52,7 +51,7 @@ internal fun supportedSurfacesFor(packageName: String): List<AppSurface> = when 
         AppSurface.MARKETPLACE
     )
     SNAPCHAT_PACKAGE -> listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES)
-    X_PACKAGE -> listOf(AppSurface.X_VIDEOS, AppSurface.EXPLORE)
+    X_PACKAGE -> listOf(AppSurface.EXPLORE)
     else -> emptyList()
 }
 
@@ -66,7 +65,6 @@ internal enum class BlockReason {
     REELS,
     STORIES,
     EXPLORE,
-    X_VIDEOS,
     MARKETPLACE,
     SPOTLIGHT
 }
@@ -113,7 +111,6 @@ internal object AppBlockDecisionEngine {
         AppSurface.REELS -> BlockReason.REELS
         AppSurface.STORIES -> BlockReason.STORIES
         AppSurface.EXPLORE -> BlockReason.EXPLORE
-        AppSurface.X_VIDEOS -> BlockReason.X_VIDEOS
         AppSurface.MARKETPLACE -> BlockReason.MARKETPLACE
         AppSurface.SPOTLIGHT -> BlockReason.SPOTLIGHT
         AppSurface.MESSAGE_INBOX,
@@ -224,57 +221,11 @@ internal object AppSurfaceClassifier {
     }
 
     private fun classifyX(signals: AppUiSignals): AppSurface = when {
-        isXFullScreenVideo(signals) -> AppSurface.X_VIDEOS
-        signals.hasSelectedLabel("video", "videos", "video tab", "videos tab") -> {
-            AppSurface.X_VIDEOS
-        }
-        signals.hasSelectedLabel("explore", "search and explore") -> AppSurface.EXPLORE
-        signals.hasViewId(
-            "video_tab",
-            "videos_tab",
-            "video_timeline",
-            "videos_timeline",
-            "immersive_video_tab",
-            "immersive_video_timeline",
-            "vertical_video_timeline"
-        ) -> AppSurface.X_VIDEOS
-        signals.hasViewId("explore_tab", "search_timeline", "explore_timeline") -> {
+        signals.hasSelectedLabel("explore", "search and explore") ||
+            signals.hasViewId("explore_tab", "search_timeline", "explore_timeline") -> {
             AppSurface.EXPLORE
         }
         else -> AppSurface.OTHER
-    }
-
-    private fun isXFullScreenVideo(signals: AppUiSignals): Boolean {
-        val hasFullScreenContainer = signals.hasViewId(
-            "fullscreen_video",
-            "full_screen_video",
-            "video_fullscreen",
-            "fullscreen_player",
-            "video_player_fullscreen",
-            "immersive_video_player",
-            "immersive_video_viewer"
-        )
-        val hasVideoInsideMediaViewer =
-            signals.hasViewId("media_viewer", "gallery_viewer") &&
-                signals.hasViewId("video_player", "video_controls")
-        val hasViewerNavigation = signals.hasLabel("back", "go back")
-        val hasPlaybackControl = signals.hasLabel("play", "play video", "pause", "pause video")
-        val hasFullScreenOnlyControl = signals.hasLabel(
-            "playback speed",
-            "video speed",
-            "enter full screen",
-            "exit full screen",
-            "full screen",
-            "fullscreen",
-            "minimize video",
-            "picture in picture",
-            "picture-in-picture",
-            "enter picture in picture"
-        )
-
-        return hasFullScreenContainer ||
-            hasVideoInsideMediaViewer ||
-            (hasViewerNavigation && hasPlaybackControl && hasFullScreenOnlyControl)
     }
 }
 

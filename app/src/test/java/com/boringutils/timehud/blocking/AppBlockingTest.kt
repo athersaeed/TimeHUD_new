@@ -35,19 +35,6 @@ class AppBlockingTest {
     }
 
     @Test
-    fun configured_x_videos_surface_blocks_before_daily_limit() {
-        val rule = rule(
-            packageName = X_PACKAGE,
-            blockedSurfaces = setOf(AppSurface.X_VIDEOS)
-        )
-
-        assertEquals(
-            BlockDecision.Block(BlockReason.X_VIDEOS),
-            AppBlockDecisionEngine.decide(rule, focusedUsageMs = 0L, AppSurface.X_VIDEOS)
-        )
-    }
-
-    @Test
     fun daily_limit_blocks_other_app_surfaces_at_boundary() {
         val rule = rule(packageName = "example.app", dailyLimitMinutes = 15)
 
@@ -84,10 +71,7 @@ class AppBlockingTest {
             listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES),
             supportedSurfacesFor(SNAPCHAT_PACKAGE)
         )
-        assertEquals(
-            listOf(AppSurface.X_VIDEOS, AppSurface.EXPLORE),
-            supportedSurfacesFor(X_PACKAGE)
-        )
+        assertEquals(listOf(AppSurface.EXPLORE), supportedSurfacesFor(X_PACKAGE))
     }
 
     @Test
@@ -109,9 +93,7 @@ class AppBlockingTest {
             Triple(FACEBOOK_PACKAGE, signals(selected = "marketplace"), AppSurface.MARKETPLACE),
             Triple(SNAPCHAT_PACKAGE, signals(selected = "spotlight"), AppSurface.SPOTLIGHT),
             Triple(SNAPCHAT_PACKAGE, signals(viewId = "stories_feed"), AppSurface.STORIES),
-            Triple(X_PACKAGE, signals(viewId = "explore_timeline"), AppSurface.EXPLORE),
-            Triple(X_PACKAGE, signals(selected = "videos"), AppSurface.X_VIDEOS),
-            Triple(X_PACKAGE, signals(viewId = "immersive_video_timeline"), AppSurface.X_VIDEOS)
+            Triple(X_PACKAGE, signals(viewId = "explore_timeline"), AppSurface.EXPLORE)
         )
 
         cases.forEach { (packageName, signals, expected) ->
@@ -178,74 +160,6 @@ class AppBlockingTest {
     }
 
     @Test
-    fun selected_x_videos_beats_a_stale_explore_container() {
-        val surface = AppSurfaceClassifier.classify(
-            X_PACKAGE,
-            signals(selected = "videos", viewId = "explore_timeline")
-        )
-
-        assertEquals(AppSurface.X_VIDEOS, surface)
-    }
-
-    @Test
-    fun selected_x_explore_beats_a_stale_videos_container() {
-        val surface = AppSurfaceClassifier.classify(
-            X_PACKAGE,
-            signals(selected = "explore", viewId = "immersive_video_timeline")
-        )
-
-        assertEquals(AppSurface.EXPLORE, surface)
-    }
-
-    @Test
-    fun x_full_screen_video_controls_are_classified_as_x_videos() {
-        val surface = AppSurfaceClassifier.classify(
-            X_PACKAGE,
-            signals(
-                labels = setOf("back", "pause video", "playback speed 1x", "enter full screen")
-            )
-        )
-
-        assertEquals(AppSurface.X_VIDEOS, surface)
-    }
-
-    @Test
-    fun x_full_screen_video_beats_the_stale_selected_explore_tab() {
-        val surface = AppSurfaceClassifier.classify(
-            X_PACKAGE,
-            signals(
-                selected = "explore",
-                labels = setOf("back", "pause", "picture in picture")
-            )
-        )
-
-        assertEquals(AppSurface.X_VIDEOS, surface)
-    }
-
-    @Test
-    fun x_video_inside_a_media_viewer_is_classified_as_x_videos() {
-        val surface = AppSurfaceClassifier.classify(
-            X_PACKAGE,
-            signals(viewIds = setOf("media_viewer", "video_player"))
-        )
-
-        assertEquals(AppSurface.X_VIDEOS, surface)
-    }
-
-    @Test
-    fun ordinary_inline_x_video_is_not_classified_as_x_videos() {
-        val surface = AppSurfaceClassifier.classify(
-            X_PACKAGE,
-            signals(
-                labels = setOf("play video", "mute"),
-                viewId = "inline_video_player"
-            )
-        )
-
-        assertEquals(AppSurface.OTHER, surface)
-    }
-
-    @Test
     fun higher_popup_is_removed_from_blocked_window_region() {
         val visible = VisibleRegionCalculator.calculate(
             target = ScreenRect(0, 0, 100, 100),
@@ -291,14 +205,13 @@ class AppBlockingTest {
     private fun signals(
         selected: String? = null,
         focused: String? = null,
-        labels: Set<String> = emptySet(),
         viewId: String? = null,
         viewIds: Set<String> = emptySet(),
         editable: String? = null,
         windowTitle: String = "",
         compactWindow: Boolean = false
     ) = AppUiSignals(
-        labels = labels + setOfNotNull(selected, focused),
+        labels = setOfNotNull(selected, focused),
         selectedLabels = setOfNotNull(selected),
         focusedLabels = setOfNotNull(focused),
         editableLabels = setOfNotNull(editable),

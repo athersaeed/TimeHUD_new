@@ -103,7 +103,6 @@
     <string name="app_blocking_block_reels">Block Reels</string>
     <string name="app_blocking_block_stories">Block Stories</string>
     <string name="app_blocking_block_explore">Block Explore</string>
-    <string name="app_blocking_block_x_videos">Block X Videos</string>
     <string name="app_blocking_block_marketplace">Block Marketplace</string>
     <string name="app_blocking_block_spotlight">Block Spotlight</string>
     <string name="app_blocking_allow_messages">Allow open Instagram chats</string>
@@ -118,7 +117,6 @@
     <string name="app_blocking_summary_reels">Reels blocked</string>
     <string name="app_blocking_summary_stories">Stories blocked</string>
     <string name="app_blocking_summary_explore">Explore blocked</string>
-    <string name="app_blocking_summary_x_videos">X Videos blocked</string>
     <string name="app_blocking_summary_marketplace">Marketplace blocked</string>
     <string name="app_blocking_summary_spotlight">Spotlight blocked</string>
     <string name="app_blocking_summary_messages">Open chats allowed</string>

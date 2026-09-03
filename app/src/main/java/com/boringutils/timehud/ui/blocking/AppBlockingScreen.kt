@@ -641,7 +641,6 @@ private fun surfaceOptionLabel(surface: AppSurface): String = stringResource(
         AppSurface.REELS -> R.string.app_blocking_block_reels
         AppSurface.STORIES -> R.string.app_blocking_block_stories
         AppSurface.EXPLORE -> R.string.app_blocking_block_explore
-        AppSurface.X_VIDEOS -> R.string.app_blocking_block_x_videos
         AppSurface.MARKETPLACE -> R.string.app_blocking_block_marketplace
         AppSurface.SPOTLIGHT -> R.string.app_blocking_block_spotlight
         AppSurface.MESSAGE_INBOX,
@@ -661,7 +660,6 @@ private fun surfaceSummaryLabel(surface: AppSurface): String = stringResource(
         AppSurface.REELS -> R.string.app_blocking_summary_reels
         AppSurface.STORIES -> R.string.app_blocking_summary_stories
         AppSurface.EXPLORE -> R.string.app_blocking_summary_explore
-        AppSurface.X_VIDEOS -> R.string.app_blocking_summary_x_videos
         AppSurface.MARKETPLACE -> R.string.app_blocking_summary_marketplace
         AppSurface.SPOTLIGHT -> R.string.app_blocking_summary_spotlight
         AppSurface.MESSAGE_INBOX,
