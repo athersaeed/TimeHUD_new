@@ -31,6 +31,17 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun blocked_app_check_in_waits_then_returns_home() {
+        assertTrue(ActiveOverlayTrigger.APP_BLOCK.requiresCloseDelay)
+        assertTrue(ActiveOverlayTrigger.APP_BLOCK.returnsHomeOnClose)
+    }
+
+    @Test
+    fun shared_screen_time_display_formats_hours_and_minutes() {
+        assertEquals("1h5m", ScreenTimeDisplay.format(65 * 60_000L))
+    }
+
+    @Test
     fun bubble_position_is_clamped_inside_the_screen() {
         assertEquals(
             BubblePosition(x = 0, y = 736),

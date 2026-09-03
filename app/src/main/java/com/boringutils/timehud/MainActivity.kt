@@ -60,6 +60,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.boringutils.timehud.ui.backup.GoalBackupPanel
 import com.boringutils.timehud.ui.backup.GoalImportConfirmationDialog
+import com.boringutils.timehud.blocking.AccessibilityServiceStatus
+import com.boringutils.timehud.ui.blocking.AppBlockingScreen
 import com.boringutils.timehud.ui.navigation.TimeHudDestination
 import com.boringutils.timehud.ui.navigation.TimeHudDrawerScaffold
 import com.boringutils.timehud.ui.theme.TimeHUDTheme
@@ -155,6 +157,9 @@ fun TimeHUDScreen(
 
     var overlayGranted by remember { mutableStateOf(hasOverlayPermission(context)) }
     var usageGranted by remember { mutableStateOf(hasUsagePermission(context)) }
+    var accessibilityGranted by remember {
+        mutableStateOf(AccessibilityServiceStatus.isEnabled(context))
+    }
     var calendarGranted by remember { mutableStateOf(CalendarAgenda.hasReadCalendarPermission(context)) }
     var selectedDestinationName by rememberSaveable {
         mutableStateOf(TimeHudDestination.GOALS.name)
@@ -310,6 +315,7 @@ fun TimeHUDScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 overlayGranted = hasOverlayPermission(context)
                 usageGranted = hasUsagePermission(context)
+                accessibilityGranted = AccessibilityServiceStatus.isEnabled(context)
                 calendarGranted = CalendarAgenda.hasReadCalendarPermission(context)
             }
         }
@@ -386,12 +392,24 @@ fun TimeHUDScreen(
                 }
             )
 
+            TimeHudDestination.APP_LIMITS -> AppBlockingScreen(
+                usagePermissionGranted = usageGranted,
+                accessibilityServiceEnabled = accessibilityGranted,
+                onOpenPermissions = {
+                    selectedDestinationName = TimeHudDestination.PERMISSIONS.name
+                }
+            )
+
             TimeHudDestination.PERMISSIONS -> PermissionsPage(
                 overlayGranted = overlayGranted,
                 usageGranted = usageGranted,
+                accessibilityGranted = accessibilityGranted,
                 calendarGranted = calendarGranted,
                 onRequestOverlay = { requestOverlayPermission(context) },
                 onRequestUsage = { requestUsagePermission(context) },
+                onRequestAccessibility = {
+                    selectedDestinationName = TimeHudDestination.APP_LIMITS.name
+                },
                 onRequestCalendar = {
                     calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                 }
@@ -548,9 +566,11 @@ private fun GoalsPage(
 private fun PermissionsPage(
     overlayGranted: Boolean,
     usageGranted: Boolean,
+    accessibilityGranted: Boolean,
     calendarGranted: Boolean,
     onRequestOverlay: () -> Unit,
     onRequestUsage: () -> Unit,
+    onRequestAccessibility: () -> Unit,
     onRequestCalendar: () -> Unit
 ) {
     val allRequiredPermissionsGranted = overlayGranted && usageGranted
@@ -588,6 +608,13 @@ private fun PermissionsPage(
             description = stringResource(R.string.permission_usage_description),
             granted = usageGranted,
             onRequest = onRequestUsage
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        PermissionCard(
+            title = stringResource(R.string.permission_accessibility_title),
+            description = stringResource(R.string.permission_accessibility_description),
+            granted = accessibilityGranted,
+            onRequest = onRequestAccessibility
         )
         Spacer(modifier = Modifier.height(14.dp))
         PermissionCard(

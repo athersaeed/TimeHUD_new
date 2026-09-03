@@ -10,7 +10,7 @@ TimeHUD is a native, local-only Android focus/accountability app.
 
 Core flow:
 
-1. The user opens the single Compose control screen in `MainActivity`.
+1. The user opens the single Compose control activity in `MainActivity` and switches among Goals, App usage, App limits, and Permissions.
 2. The user grants overlay access and usage access.
 3. The user can edit short-term and long-term goals and optionally grant calendar read access.
 4. Starting the HUD launches `OverlayService` as a foreground service.
@@ -18,6 +18,7 @@ Core flow:
 6. At newly observed five-minute usage buckets, it is replaced by the same full-screen goal check-in.
 7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, or close it. Bubble-opened check-ins close immediately; automatic five-minute check-ins enforce a five-second delay.
 8. The service can restart after boot or package replacement when saved active state and required permissions allow it.
+9. Independently of the HUD service, an optional accessibility service enforces configured per-app daily limits and supported in-app section rules for YouTube, Instagram, Facebook, Snapchat, and X. It preserves higher-layer multi-window/pop-up regions, keeps Instagram Messages exempt, and presents the shared goal check-in over blocked content. After the five-second pause, Close returns to Android Home.
 
 Important timing behavior:
 
@@ -35,6 +36,7 @@ Current repository facts:
 - `SharedPreferences` persistence
 - Android Calendar Provider integration
 - Android Usage Stats/AppOps integration
+- Optional Android Accessibility Service for local app-limit detection and window-scoped shields
 - Foreground service and boot receiver
 - No backend, networking, authentication, cloud sync, analytics, ads, Room, DataStore, navigation graph, dependency injection, repository layer, or application `ViewModel`
 
@@ -85,6 +87,12 @@ app/
       GoalCompletionStore.kt
       OverlayServiceState.kt
       StartupPreferences.kt
+      blocking/
+        AppBlockModels.kt
+        AppBlockSettings.kt
+        TimeHudAccessibilityService.kt
+      ui/blocking/
+        AppBlockingScreen.kt
       ui/theme/
     res/
       layout/overlay_passive.xml
@@ -132,6 +140,12 @@ app/
 - `StartupPreferences.kt`
   - Persistent desired HUD-active state used for restart behavior
 
+- `blocking/`
+  - App-limit rule persistence, pure decisions/visible-region geometry, focused-use accounting, supported-app navigation-state classification, accessibility window observation, and blocking overlays
+
+- `ui/blocking/AppBlockingScreen.kt`
+  - App-limit rule editor, Accessibility Settings entry, daily-limit controls, and per-section options for YouTube, Instagram, Facebook, Snapchat, and X
+
 - `overlay_passive.xml`
   - Small always-on-top timer
 
@@ -173,6 +187,11 @@ Calendar Provider
 OverlayService lifecycle
   -> OverlayServiceStateStore StateFlow
   -> MainActivity Start/Stop presentation
+
+Accessibility windows + configured app-limit rules
+  -> TimeHudAccessibilityService classification and focused-use accounting
+  -> visible-region subtraction for higher pop-up windows
+  -> TYPE_ACCESSIBILITY_OVERLAY blocking pieces
 ```
 
 Preserve this simple architecture for small changes. Do not introduce a framework merely to make one local change.
@@ -233,8 +252,19 @@ Preserve these unless the request explicitly changes them.
 
 - Overlay and usage access are required to start the HUD.
 - Calendar access is optional.
+- Accessibility access is optional for the HUD but required for app-limit enforcement. Rules stay local and must not inspect, persist, or log message bodies, post text, usernames, or captions.
 - Every new permission needs manifest configuration where required, request flow, granted behavior, denied behavior, revoked-while-running behavior, and an appropriate user explanation.
 - A manifest declaration alone is never sufficient for a runtime or special-access permission.
+
+### App-limit behavior
+
+- App limits use the same 3:00 AM daily boundary as app usage.
+- Usage Access seeds the current daily total; subsequent enforcement time is accumulated from the focused accessibility window so a visible background app does not gain focused time behind a Samsung pop-up.
+- In-app recognition is intentionally limited to supported English navigation labels, window titles, and view identifiers: YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Explore. Unknown sections must not be described as confidently recognized.
+- When an individual Instagram chat is confidently recognized through thread/composer signals, the open-chat exemption takes priority over section and daily-limit blocking. The Messages inbox itself is not exempt when Instagram section blocking is configured.
+- An actively selected/current Instagram Stories, Reels, or Explore surface must beat a stale Messages container left in the accessibility tree; an actively selected Messages tab is classified as either inbox or open thread rather than receiving a blanket exemption.
+- Blocking overlays cover only the target window's exposed regions; higher-layer pop-up/system windows must remain visible and interactive.
+- Disabling or revoking the accessibility service must remove service-owned blocking overlays.
 
 ## Known Baseline Risks to Verify
 

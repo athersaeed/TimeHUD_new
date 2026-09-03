@@ -1,10 +1,12 @@
 package com.boringutils.timehud
 
+import android.Manifest
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import android.content.pm.PackageManager
 import android.os.Build
 import android.view.LayoutInflater
+import com.boringutils.timehud.blocking.TimeHudAccessibilityService
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -22,10 +24,14 @@ class ExampleInstrumentedTest {
     }
 
     @Test
-    fun manifest_registers_boot_receiver_and_overlay_service() {
+    fun manifest_registers_boot_receiver_and_services() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val packageManager = context.packageManager
-        val flags = (PackageManager.GET_RECEIVERS or PackageManager.GET_SERVICES).toLong()
+        val flags = (
+            PackageManager.GET_RECEIVERS or
+                PackageManager.GET_SERVICES or
+                PackageManager.GET_META_DATA
+            ).toLong()
         val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             packageManager.getPackageInfo(
                 context.packageName,
@@ -45,7 +51,18 @@ class ExampleInstrumentedTest {
         assertFalse(overlayServiceInfo!!.exported)
 
         val serviceNames = packageInfo.services?.map { it.name }.orEmpty()
-        assertEquals(listOf(OverlayService::class.java.name), serviceNames)
+        assertTrue(serviceNames.contains(OverlayService::class.java.name))
+        assertTrue(serviceNames.contains(TimeHudAccessibilityService::class.java.name))
+
+        val accessibilityServiceInfo = packageInfo.services
+            ?.firstOrNull { it.name == TimeHudAccessibilityService::class.java.name }
+        assertNotNull(accessibilityServiceInfo)
+        assertFalse(accessibilityServiceInfo!!.exported)
+        assertEquals(Manifest.permission.BIND_ACCESSIBILITY_SERVICE, accessibilityServiceInfo.permission)
+        assertEquals(
+            R.xml.timehud_accessibility_service,
+            accessibilityServiceInfo.metaData.getInt("android.accessibilityservice")
+        )
     }
 
     @Test
