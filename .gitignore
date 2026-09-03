@@ -39,3 +39,6 @@ keystore.properties
 *.apk
 *.aab
 *.idsig
+
+# Raw device screenshots (keep curated store artwork tracked)
+store-assets/WhatsApp Image*.jpeg
