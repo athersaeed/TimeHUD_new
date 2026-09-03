@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -27,6 +28,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,15 +39,18 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,6 +88,19 @@ internal data class AppBlockingUiState(
     val apps: List<BlockableAppUi> = emptyList(),
     val usagePermissionRequired: Boolean = false
 )
+
+internal fun filterBlockableApps(
+    apps: List<BlockableAppUi>,
+    query: String
+): List<BlockableAppUi> {
+    val trimmedQuery = query.trim()
+    if (trimmedQuery.isEmpty()) return apps
+
+    return apps.filter { app ->
+        app.appName.contains(trimmedQuery, ignoreCase = true) ||
+            app.packageName.contains(trimmedQuery, ignoreCase = true)
+    }
+}
 
 internal class AppBlockingViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(AppBlockingUiState())
@@ -195,8 +213,13 @@ internal fun AppBlockingScreen(
     val state by viewModel.uiState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     var editingApp by remember { mutableStateOf<BlockableAppUi?>(null) }
     var showAccessibilityDisclosure by remember { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val filteredApps = remember(state.apps, searchQuery) {
+        filterBlockableApps(state.apps, searchQuery)
+    }
 
     LaunchedEffect(usagePermissionGranted) {
         viewModel.refresh(usagePermissionGranted)
@@ -275,8 +298,44 @@ internal fun AppBlockingScreen(
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-                items(state.apps, key = { it.packageName }) { app ->
-                    BlockableAppRow(app = app, onEdit = { editingApp = app })
+                item {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.app_blocking_search_label)) },
+                        placeholder = {
+                            Text(stringResource(R.string.app_blocking_search_placeholder))
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(
+                            onSearch = { focusManager.clearFocus() }
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color(0xFF668DFF),
+                            focusedBorderColor = Color(0xFF668DFF),
+                            unfocusedBorderColor = Color(0xFF3A3A50),
+                            focusedLabelColor = Color(0xFFAEC2FF),
+                            unfocusedLabelColor = Color(0xFF9999B5),
+                            focusedPlaceholderColor = Color(0xFF66667A),
+                            unfocusedPlaceholderColor = Color(0xFF66667A)
+                        )
+                    )
+                }
+                if (filteredApps.isEmpty()) {
+                    item {
+                        BlockingMessageCard(
+                            title = stringResource(R.string.app_blocking_search_empty_title),
+                            message = stringResource(R.string.app_blocking_search_empty_message)
+                        )
+                    }
+                } else {
+                    items(filteredApps, key = { it.packageName }) { app ->
+                        BlockableAppRow(app = app, onEdit = { editingApp = app })
+                    }
                 }
             }
         }

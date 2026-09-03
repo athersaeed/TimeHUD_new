@@ -85,6 +85,10 @@
     <string name="app_blocking_empty_title">No apps available</string>
     <string name="app_blocking_empty_message">Android did not return any launchable apps that TimeHUD can configure.</string>
     <string name="app_blocking_apps_title">Apps — configured and recently used first</string>
+    <string name="app_blocking_search_label">Search apps</string>
+    <string name="app_blocking_search_placeholder">App name or package</string>
+    <string name="app_blocking_search_empty_title">No matching apps</string>
+    <string name="app_blocking_search_empty_message">Try a different app name or package.</string>
     <string name="app_blocking_usage_today">Used today: %1$s</string>
     <string name="app_blocking_set">Set limit</string>
     <string name="app_blocking_edit">Edit</string>

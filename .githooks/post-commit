@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+commit_message="$(git log -1 --pretty=%B)"
+
+if [[ "$commit_message" != *"[apk]"* ]]; then
+    exit 0
+fi
+
+echo "Detected [apk] in the commit message. Creating a debug update APK..."
+
+if ! "$repo_root/scripts/build-debug-update.sh"; then
+    echo "The APK build failed. The Git commit was already created." >&2
+    exit 1
+fi

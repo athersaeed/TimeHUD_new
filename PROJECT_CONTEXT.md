@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-11
 
-Last implementation update: 2026-09-01
+Last implementation update: 2026-09-03
 
 This document is a source-based technical handoff for the checked-in Android project. It describes the current repository, not a proposed architecture. Generated content under `app/build/`, `.gradle/`, `.gradle-work/`, and `.kotlin/` was ignored except for verification reports and build artifacts produced during this audit.
 
@@ -28,7 +28,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 9. The persistent notification opens `MainActivity`. **Stop HUD** stops the service and clears the restart preference (`OverlayService.kt:100-125`, `MainActivity.kt:130-132`).
 10. If the HUD was marked active, boot or package replacement attempts to restart it when overlay and usage permissions are still present (`BootReceiver.kt:17-35`).
 11. Open **App usage** to refresh a top-five horizontal bar chart and a full longest-first list of per-app foreground time since the same 3:00 AM boundary. This history is read locally through `UsageStatsManager` and is not persisted or uploaded (`ui/usage/`).
-12. Open **App limits** to configure daily focused-use limits for launchable apps. Configured and recently used apps sort first. Supported per-section controls are YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Explore. Instagram can exempt an actually open chat, while the Messages inbox itself still shows the check-in when section blocking is configured. Enabling the optional TimeHUD accessibility service applies those rules independently of whether the HUD foreground service is running. Blocked content shows the same timer, agenda, and goals check-in used by the HUD; its Close button unlocks after five seconds and sends the user to Android Home (`ActiveOverlayContentController.kt`, `ui/blocking/`, `blocking/`).
+12. Open **App limits** to search by app name or package and configure daily focused-use limits for launchable apps. Configured and recently used apps sort first. Supported per-section controls are YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Explore. Instagram can exempt an actually open chat, while the Messages inbox itself still shows the check-in when section blocking is configured. Enabling the optional TimeHUD accessibility service applies those rules independently of whether the HUD foreground service is running. Blocked content shows the same timer, agenda, and goals check-in used by the HUD; its Close button unlocks after five seconds and sends the user to Android Home (`ActiveOverlayContentController.kt`, `ui/blocking/`, `blocking/`).
 13. The accessibility service observes all interactive windows, classifies supported navigation state locally, and draws touch-blocking accessibility-overlay pieces over only the exposed portion of a limited window. Higher-layer Samsung Pop-up View, split-screen, keyboard, and system-window rectangles are subtracted so they remain usable.
 
 ### Features confirmed in the current source
@@ -40,7 +40,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 - Editable short-term and long-term goal lists.
 - Hamburger navigation with Goals as the default page, App usage and App limits as secondary pages, and Permissions anchored at the bottom of the drawer.
 - Per-app foreground-time chart and descending list using the 3:00 AM daily boundary.
-- Configurable daily focused-use app limits, locally seeded from the current usage total.
+- Searchable, configurable daily focused-use app limits, locally seeded from the current usage total.
 - Optional section blocking for YouTube, Instagram, Facebook, Snapchat, and X, with a conversation-level open-chat exemption for Instagram but no blanket inbox exemption.
 - Multi-window-aware accessibility shields that preserve higher-layer pop-up regions.
 - Manual goal-only JSON export and replacement import through Android's Storage Access Framework, including confirmation and validation.
@@ -238,7 +238,7 @@ The overlay entries below are service-owned window layers rather than Android na
 |---|---|---|---|---|---|---|
 | Goals page | Launcher `MAIN`/`LAUNCHER` -> `.MainActivity`; `GOALS` drawer destination | `MainActivity.kt`, Compose | None | Default in-app page; opened by launcher, notification, drawer, or Back from a secondary page | Edit/save/backup goals, import calendar, start/stop HUD, open Permissions when required access is missing | Goal/calendar/backup helpers, `OverlayServiceStateStore` |
 | App usage page | `APP_USAGE` drawer destination | `ui/usage/`, Compose | `AppUsageViewModel` | Secondary page opened from the drawer | Refresh, inspect top-five chart, scroll every app longest-first, open Permissions when usage access is missing | `UsageStatsManager`, `PackageManager`, `AppUsageRepository` |
-| App limits page | `APP_LIMITS` drawer destination | `ui/blocking/`, Compose | `AppBlockingViewModel` | Secondary page opened from the drawer | Enable the app-limit accessibility service; set/remove daily limits; configure supported section rules and the Instagram open-chat exemption | Usage history, `AppBlockSettings`, Android Accessibility Settings |
+| App limits page | `APP_LIMITS` drawer destination | `ui/blocking/`, Compose | `AppBlockingViewModel` | Secondary page opened from the drawer | Search installed apps by name or package; enable the app-limit accessibility service; set/remove daily limits; configure supported section rules and the Instagram open-chat exemption | Usage history, `AppBlockSettings`, Android Accessibility Settings |
 | Permissions page | `PERMISSIONS` drawer destination, anchored at the bottom | `MainActivity.kt`, Compose | None | Secondary page opened from the drawer or missing-access actions | Grant overlay, usage, and optional calendar access | Android Settings/AppOps and runtime permission controller |
 | Goal Backup panel | Section within setup/control screen | `ui/backup/GoalBackupPanel.kt`, `MainActivity.kt` | None | Appears immediately below goal settings | Export current editor text; open and validate a JSON backup | Activity Result APIs, `GoalBackupFormat`, `GoalBackupStorage`, current editor state |
 | Replace Goals dialog | Compose `AlertDialog`; no route | `ui/backup/GoalBackupPanel.kt` | None | Appears only after a complete valid backup is read | Replace both saved/editor goal groups or cancel | Pending validated goal text and `GoalSettings` |
@@ -310,7 +310,7 @@ Device boot or app replacement
 |---|---|---|---|
 | `TimeHUDScreen` composable | Permission flags; short/long editor strings; save/calendar/backup status; pending picker snapshots and validated import; collected service state | Permission taps, edits, calendar import, backup export/import/confirmation, start/stop, resume | Goal editor and pending backup state use `rememberSaveable`; file I/O uses a composition coroutine scope and returns to main state. A confirmed restore writes and updates both editor fields together, preventing pre-import editor text from being re-saved. The older service-side goal-removal divergence remains outside this flow. |
 | `AppUsageViewModel` | Loading, ready/empty, permission-required, and unavailable states plus sorted app entries | Page composition/resume and manual Refresh | Activity-scoped ViewModel cancels a previous refresh before starting a new `Dispatchers.IO` query. Results are not persisted. |
-| `AppBlockingViewModel` | Loading, usage-permission-required, launchable app list, current daily usage, and configured rules | Page composition/resume and rule save/removal | Activity-scoped ViewModel loads package/usage state on `Dispatchers.IO`; rules persist separately in `AppBlockSettings`. |
+| `AppBlockingViewModel` | Loading, usage-permission-required, launchable app list, current daily usage, and configured rules | Page composition/resume and rule save/removal | Activity-scoped ViewModel loads package/usage state on `Dispatchers.IO`; rules persist separately in `AppBlockSettings`. The App limits composable keeps its local search query across ordinary recreation and filters the already-loaded list without another provider query. |
 | `TimeHudAccessibilityService` | Current focused configured package, focus interval, visible window classifications, blocking targets, and attached overlay pieces | Accessibility window/content events, scheduled daily-limit boundary checks, and the blocked-overlay Home action | System-owned optional service. Rules and accumulated daily usage persist; live nodes and overlays do not. Destruction/interruption flushes focus time and removes overlays. |
 | `OverlayServiceStateStore` | `StateFlow<OverlayServiceUiState>` with `isRunning` and derived `primaryAction` | `markRunning()`, `markStopped()` from service lifecycle | Process-local only. It is sufficient for the current same-process activity/service but is not an authoritative cross-process/persistent service monitor. |
 | `StartupPreferences` | Persistent `hud_active` boolean | Service `onStartCommand` marks true; explicit activity stop marks false | Used for boot restart intent. `OverlayService.onDestroy()` intentionally does not clear it, so system destruction still leaves restart intent set. |
@@ -494,6 +494,18 @@ Other platform usage:
 
 No ktlint, detekt, Spotless, or other formatting task is configured. In a restricted environment where the home Gradle cache is not writable, the audit successfully used `./gradlew --gradle-user-home .gradle-work <tasks>`; normal developer machines should use the default Gradle user home.
 
+### Intentional debug-update APK hook
+
+The repository includes a version-controlled `post-commit` hook for intentionally producing a fresh, locally installable debug update. Enable it once in this checkout with:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+A commit whose message contains the exact marker `[apk]`, for example `git commit -m "Add weekly usage graph [apk]"`, runs `scripts/build-debug-update.sh`. The script runs the JVM unit tests, forces a fresh `assembleDebug`, reads `versionName` from `app/build.gradle.kts`, and copies the result to `app/release/TimeHUD-v<version>-debug-update.apk`. APK files remain ignored by Git. Commits without `[apk]` do not run the build.
+
+The debug APK uses the local Android debug certificate and is intended only for direct testing updates on devices that already have a matching debug-signed build. It is not a Play Store release artifact. A failing post-commit build does not undo the commit that triggered it; fix the reported error and run `scripts/build-debug-update.sh` directly to retry.
+
 ## 14. Build variants and release process
 
 - Modules: only `:app` (`settings.gradle.kts:26`).
@@ -533,6 +545,8 @@ Production blockers/concerns:
 `app/src/test/java/com/boringutils/timehud/AppUsageCalculatorTest.kt` contains six passing JVM tests covering repeated foreground intervals, an app already active at the period boundary, an app still active at refresh time, duplicate background events, compact duration formatting, and the pre-3:00 AM previous-day boundary.
 
 `app/src/test/java/com/boringutils/timehud/blocking/AppBlockingTest.kt` covers open-chat versus inbox behavior, stale Messages-container transitions into Reels, generalized surface rules, all screenshot-requested option sets and classifiers, daily-limit boundaries, central and edge pop-up subtraction, and full-screen occlusion.
+
+`app/src/test/java/com/boringutils/timehud/ui/blocking/AppBlockingScreenTest.kt` contains four pure search-filter tests covering blank-query ordering, case-insensitive app-name and package-name matching, and no-result behavior.
 
 `app/src/androidTest/java/com/boringutils/timehud/ExampleInstrumentedTest.kt` contains three device tests:
 
@@ -583,6 +597,15 @@ The two API compatibility errors recorded in the 2026-07-11 runs were later fixe
 |---|---|---|
 | `./gradlew --gradle-user-home .gradle-work testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest assembleRelease` | Passed | All 39 JVM tests passed. Lint completed with zero errors and 41 non-fatal warnings. Debug, Android-test, and minified/resource-shrunk unsigned release APKs assembled. |
 | `adb devices` | No attached devices | Accessibility enablement, real supported-app view identifiers, Samsung Pop-up View layering, split-screen, rule enforcement, and the compiled device tests were not run. |
+| `git diff --check` | Passed | No whitespace errors were introduced. |
+
+### Verification performed on 2026-09-03 for App limits search
+
+| Command/check | Result | Notes |
+|---|---|---|
+| `./gradlew --gradle-user-home .gradle-work testDebugUnitTest` | Passed | All 50 JVM tests passed, including four App limits search-filter tests. |
+| `./gradlew --gradle-user-home .gradle-work lintDebug assembleDebug assembleDebugAndroidTest` | Passed | Lint, the debug APK, and Android-test APK compilation completed successfully. |
+| `adb devices` | No attached devices | The search field, keyboard action, recreation behavior, and no-results card were not exercised on a device or emulator. |
 | `git diff --check` | Passed | No whitespace errors were introduced. |
 
 ### Coverage gaps
@@ -657,7 +680,8 @@ The most important untested behavior is also the most failure-prone: total scree
 | `ExampleUnitTest.kt` | Twelve existing pure behavior tests | Covers calendar, goals, completion keys, bubble positioning, triggers, and service UI state | Calendar, goals, completion keys, overlay helpers, service UI state |
 | `GoalBackupTest.kt` | Fourteen backup codec/text tests | Protects schema compatibility, special characters, exclusion, and error atomicity | `GoalBackup`, `CalendarGoalSection`, test-only `org.json` runtime |
 | `AppUsageCalculatorTest.kt` | Six per-app usage tests | Protects interval aggregation, reset boundary, duplicate handling, and display formatting | `AppUsageCalculator`, duration helpers |
-| `AppBlockingTest.kt` | Nine pure app-blocking tests | Protects decision priority, all supported option/classifier mappings, limits, and pop-up region subtraction | `AppBlockDecisionEngine`, `AppSurfaceClassifier`, `VisibleRegionCalculator` |
+| `AppBlockingTest.kt` | Twelve pure app-blocking tests | Protects decision priority, all supported option/classifier mappings, limits, and pop-up region subtraction | `AppBlockDecisionEngine`, `AppSurfaceClassifier`, `VisibleRegionCalculator` |
+| `AppBlockingScreenTest.kt` | Four pure App limits search tests | Protects blank-query ordering, app-name/package matching, and no-result filtering | `BlockableAppUi`, `filterBlockableApps` |
 | `ExampleInstrumentedTest.kt` | Package/manifest/bubble device tests | Basic Android component and overlay metadata coverage | Built manifest, Android package manager, overlay XML |
 | `MainNavigationTest.kt` | Drawer Compose UI test | Checks that App usage, App limits, and Permissions are reachable | `MainActivity`, Compose test runtime |
 
