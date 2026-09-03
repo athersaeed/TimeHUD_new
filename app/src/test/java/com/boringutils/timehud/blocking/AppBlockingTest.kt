@@ -198,6 +198,54 @@ class AppBlockingTest {
     }
 
     @Test
+    fun x_full_screen_video_controls_are_classified_as_x_videos() {
+        val surface = AppSurfaceClassifier.classify(
+            X_PACKAGE,
+            signals(
+                labels = setOf("back", "pause video", "playback speed 1x", "enter full screen")
+            )
+        )
+
+        assertEquals(AppSurface.X_VIDEOS, surface)
+    }
+
+    @Test
+    fun x_full_screen_video_beats_the_stale_selected_explore_tab() {
+        val surface = AppSurfaceClassifier.classify(
+            X_PACKAGE,
+            signals(
+                selected = "explore",
+                labels = setOf("back", "pause", "picture in picture")
+            )
+        )
+
+        assertEquals(AppSurface.X_VIDEOS, surface)
+    }
+
+    @Test
+    fun x_video_inside_a_media_viewer_is_classified_as_x_videos() {
+        val surface = AppSurfaceClassifier.classify(
+            X_PACKAGE,
+            signals(viewIds = setOf("media_viewer", "video_player"))
+        )
+
+        assertEquals(AppSurface.X_VIDEOS, surface)
+    }
+
+    @Test
+    fun ordinary_inline_x_video_is_not_classified_as_x_videos() {
+        val surface = AppSurfaceClassifier.classify(
+            X_PACKAGE,
+            signals(
+                labels = setOf("play video", "mute"),
+                viewId = "inline_video_player"
+            )
+        )
+
+        assertEquals(AppSurface.OTHER, surface)
+    }
+
+    @Test
     fun higher_popup_is_removed_from_blocked_window_region() {
         val visible = VisibleRegionCalculator.calculate(
             target = ScreenRect(0, 0, 100, 100),
@@ -243,13 +291,14 @@ class AppBlockingTest {
     private fun signals(
         selected: String? = null,
         focused: String? = null,
+        labels: Set<String> = emptySet(),
         viewId: String? = null,
         viewIds: Set<String> = emptySet(),
         editable: String? = null,
         windowTitle: String = "",
         compactWindow: Boolean = false
     ) = AppUiSignals(
-        labels = setOfNotNull(selected, focused),
+        labels = labels + setOfNotNull(selected, focused),
         selectedLabels = setOfNotNull(selected),
         focusedLabels = setOfNotNull(focused),
         editableLabels = setOfNotNull(editable),

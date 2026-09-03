@@ -224,6 +224,7 @@ internal object AppSurfaceClassifier {
     }
 
     private fun classifyX(signals: AppUiSignals): AppSurface = when {
+        isXFullScreenVideo(signals) -> AppSurface.X_VIDEOS
         signals.hasSelectedLabel("video", "videos", "video tab", "videos tab") -> {
             AppSurface.X_VIDEOS
         }
@@ -241,6 +242,39 @@ internal object AppSurfaceClassifier {
             AppSurface.EXPLORE
         }
         else -> AppSurface.OTHER
+    }
+
+    private fun isXFullScreenVideo(signals: AppUiSignals): Boolean {
+        val hasFullScreenContainer = signals.hasViewId(
+            "fullscreen_video",
+            "full_screen_video",
+            "video_fullscreen",
+            "fullscreen_player",
+            "video_player_fullscreen",
+            "immersive_video_player",
+            "immersive_video_viewer"
+        )
+        val hasVideoInsideMediaViewer =
+            signals.hasViewId("media_viewer", "gallery_viewer") &&
+                signals.hasViewId("video_player", "video_controls")
+        val hasViewerNavigation = signals.hasLabel("back", "go back")
+        val hasPlaybackControl = signals.hasLabel("play", "play video", "pause", "pause video")
+        val hasFullScreenOnlyControl = signals.hasLabel(
+            "playback speed",
+            "video speed",
+            "enter full screen",
+            "exit full screen",
+            "full screen",
+            "fullscreen",
+            "minimize video",
+            "picture in picture",
+            "picture-in-picture",
+            "enter picture in picture"
+        )
+
+        return hasFullScreenContainer ||
+            hasVideoInsideMediaViewer ||
+            (hasViewerNavigation && hasPlaybackControl && hasFullScreenOnlyControl)
     }
 }
 
