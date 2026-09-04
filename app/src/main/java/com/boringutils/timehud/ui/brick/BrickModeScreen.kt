@@ -1,8 +1,10 @@
 package com.boringutils.timehud.ui.brick
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,6 +24,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
@@ -62,6 +65,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.boringutils.timehud.R
 import com.boringutils.timehud.blocking.BrickModeApp
 import com.boringutils.timehud.blocking.BrickModeCatalogLoader
+import com.boringutils.timehud.blocking.BrickModeSchedule
+import com.boringutils.timehud.blocking.BrickModeSchedulePolicy
 import com.boringutils.timehud.blocking.BrickModeSettings
 import com.boringutils.timehud.blocking.BrickModeTimer
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +76,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Calendar
+import java.util.UUID
 
 internal data class BrickModeAppUi(
     val packageName: String,
@@ -83,6 +90,7 @@ internal data class BrickModeUiState(
     val isLoading: Boolean = true,
     val enabled: Boolean = false,
     val endsAtEpochMs: Long? = null,
+    val schedules: List<BrickModeSchedule> = emptyList(),
     val apps: List<BrickModeAppUi> = emptyList()
 )
 
@@ -102,6 +110,30 @@ internal fun formatBrickModeRemaining(remainingMs: Long): String {
         hours > 0L -> "${hours}h ${minutes}m ${seconds}s"
         minutes > 0L -> "${minutes}m ${seconds}s"
         else -> "${seconds}s"
+    }
+}
+
+internal fun parseBrickModeScheduleStart(value: String): Int? {
+    val parts = value.trim().split(':')
+    if (parts.size != 2) return null
+    val hour = parts[0].toIntOrNull()?.takeIf { it in 0..23 } ?: return null
+    val minute = parts[1].toIntOrNull()?.takeIf { it in 0..59 } ?: return null
+    if (parts[1].length != 2) return null
+    return hour * 60 + minute
+}
+
+internal fun parseBrickModeScheduleDuration(value: String): Int? = value
+    .trim()
+    .toIntOrNull()
+    ?.takeIf { it in 1..24 * 60 }
+
+internal fun formatBrickModeScheduleDuration(durationMinutes: Int): String {
+    val hours = durationMinutes / 60
+    val minutes = durationMinutes % 60
+    return when {
+        hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
+        hours > 0 -> "${hours}h"
+        else -> "${minutes}m"
     }
 }
 
@@ -144,14 +176,36 @@ internal class BrickModeViewModel(application: Application) : AndroidViewModel(a
         refresh()
     }
 
+    fun addSchedule(daysOfWeek: Set<Int>, startMinuteOfDay: Int, durationMinutes: Int) {
+        val schedule = BrickModeSchedule(
+            id = UUID.randomUUID().toString(),
+            daysOfWeek = daysOfWeek,
+            startMinuteOfDay = startMinuteOfDay,
+            durationMinutes = durationMinutes
+        )
+        if (BrickModeSettings.saveSchedule(getApplication(), schedule)) refresh()
+    }
+
+    fun setScheduleEnabled(scheduleId: String, enabled: Boolean) {
+        BrickModeSettings.setScheduleEnabled(getApplication(), scheduleId, enabled)
+        refresh()
+    }
+
+    fun removeSchedule(scheduleId: String) {
+        BrickModeSettings.removeSchedule(getApplication(), scheduleId)
+        refresh()
+    }
+
     private fun loadState(): BrickModeUiState {
         val context = getApplication<Application>()
         val config = BrickModeSettings.load(context)
+        val schedules = BrickModeSettings.loadSchedules(context)
         val catalog = BrickModeCatalogLoader.load(context)
         return BrickModeUiState(
             isLoading = false,
             enabled = config.enabled,
             endsAtEpochMs = config.endsAtEpochMs,
+            schedules = schedules,
             apps = catalog.apps.map { app -> app.toUi(config.allowedPackages) }
         )
     }
@@ -175,6 +229,7 @@ internal fun BrickModeScreen(
     val focusManager = LocalFocusManager.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showAccessibilityDisclosure by remember { mutableStateOf(false) }
+    var showAddScheduleDialog by remember { mutableStateOf(false) }
     var timerDurationInput by rememberSaveable { mutableStateOf("60") }
     var timerDurationHasError by rememberSaveable { mutableStateOf(false) }
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -184,16 +239,20 @@ internal fun BrickModeScreen(
     val essentialApps = filteredApps.filter(BrickModeAppUi::alwaysAvailable)
     val selectableApps = filteredApps.filterNot(BrickModeAppUi::alwaysAvailable)
     val selectedCount = state.apps.count { it.allowed && !it.alwaysAvailable }
+    val scheduledActive = BrickModeSchedulePolicy.isAnyActive(state.schedules, nowMs)
+    val effectiveEnabled = state.enabled || scheduledActive
     val remainingTimeText = state.endsAtEpochMs
         ?.takeIf { state.enabled }
         ?.let { endsAtEpochMs -> formatBrickModeRemaining(endsAtEpochMs - nowMs) }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
-    LaunchedEffect(state.enabled, state.endsAtEpochMs) {
-        val endsAtEpochMs = state.endsAtEpochMs?.takeIf { state.enabled } ?: return@LaunchedEffect
+    LaunchedEffect(state.enabled, state.endsAtEpochMs, state.schedules) {
+        val endsAtEpochMs = state.endsAtEpochMs?.takeIf { state.enabled }
+        val hasEnabledSchedule = state.schedules.any(BrickModeSchedule::enabled)
+        if (endsAtEpochMs == null && !hasEnabledSchedule) return@LaunchedEffect
         while (true) {
             nowMs = System.currentTimeMillis()
-            if (nowMs >= endsAtEpochMs) {
+            if (endsAtEpochMs != null && nowMs >= endsAtEpochMs) {
                 viewModel.refresh()
                 break
             }
@@ -232,7 +291,9 @@ internal fun BrickModeScreen(
 
         item {
             BrickModeStatusCard(
-                enabled = state.enabled,
+                active = effectiveEnabled,
+                manualEnabled = state.enabled,
+                scheduledActive = scheduledActive,
                 selectedCount = selectedCount,
                 remainingTimeText = remainingTimeText,
                 onEnabledChange = { enabled ->
@@ -272,13 +333,26 @@ internal fun BrickModeScreen(
         }
 
         item {
+            BrickModeSchedulesCard(
+                schedules = state.schedules,
+                nowMs = nowMs,
+                onAddSchedule = { showAddScheduleDialog = true },
+                onScheduleEnabledChange = viewModel::setScheduleEnabled,
+                onRemoveSchedule = viewModel::removeSchedule
+            )
+        }
+
+        item {
             BrickModeMessageCard(
                 title = stringResource(R.string.brick_mode_background_title),
                 message = stringResource(R.string.brick_mode_background_message)
             )
         }
 
-        if (state.enabled && !accessibilityServiceEnabled) {
+        if (
+            !accessibilityServiceEnabled &&
+            (effectiveEnabled || state.schedules.any(BrickModeSchedule::enabled))
+        ) {
             item {
                 BrickModeMessageCard(
                     title = stringResource(R.string.brick_mode_access_required_title),
@@ -385,11 +459,24 @@ internal fun BrickModeScreen(
             }
         )
     }
+
+
+    if (showAddScheduleDialog) {
+        AddBrickModeScheduleDialog(
+            onDismiss = { showAddScheduleDialog = false },
+            onSave = { daysOfWeek, startMinuteOfDay, durationMinutes ->
+                viewModel.addSchedule(daysOfWeek, startMinuteOfDay, durationMinutes)
+                showAddScheduleDialog = false
+            }
+        )
+    }
 }
 
 @Composable
 private fun BrickModeStatusCard(
-    enabled: Boolean,
+    active: Boolean,
+    manualEnabled: Boolean,
+    scheduledActive: Boolean,
     selectedCount: Int,
     remainingTimeText: String?,
     onEnabledChange: (Boolean) -> Unit
@@ -404,17 +491,19 @@ private fun BrickModeStatusCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(if (enabled) Color(0xFF18284A) else Color(0xFF171725))
+            .background(if (active) Color(0xFF18284A) else Color(0xFF171725))
             .padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = if (enabled) {
-                    stringResource(R.string.brick_mode_active)
-                } else {
-                    stringResource(R.string.brick_mode_inactive)
+                text = when {
+                    scheduledActive && !manualEnabled -> {
+                        stringResource(R.string.brick_mode_active_scheduled)
+                    }
+                    active -> stringResource(R.string.brick_mode_active)
+                    else -> stringResource(R.string.brick_mode_inactive)
                 },
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold
@@ -436,7 +525,7 @@ private fun BrickModeStatusCard(
             }
         }
         Switch(
-            checked = enabled,
+            checked = manualEnabled,
             onCheckedChange = onEnabledChange,
             modifier = Modifier.semantics { contentDescription = switchDescription }
         )
@@ -520,6 +609,296 @@ private fun BrickModeTimerCard(
             )
         }
     }
+}
+
+@Composable
+private fun BrickModeSchedulesCard(
+    schedules: List<BrickModeSchedule>,
+    nowMs: Long,
+    onAddSchedule: () -> Unit,
+    onScheduleEnabledChange: (String, Boolean) -> Unit,
+    onRemoveSchedule: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF171725))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.brick_mode_schedules_title),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = stringResource(R.string.brick_mode_schedules_description),
+                    color = Color(0xFF9999B5),
+                    fontSize = 12.sp
+                )
+            }
+            Button(onClick = onAddSchedule) {
+                Text(stringResource(R.string.brick_mode_schedule_add))
+            }
+        }
+
+        if (schedules.isEmpty()) {
+            Text(
+                text = stringResource(R.string.brick_mode_schedules_empty),
+                color = Color(0xFF777790),
+                fontSize = 13.sp
+            )
+        } else {
+            schedules.forEach { schedule ->
+                BrickModeScheduleRow(
+                    schedule = schedule,
+                    active = BrickModeSchedulePolicy.isActive(schedule, nowMs),
+                    onEnabledChange = { enabled ->
+                        onScheduleEnabledChange(schedule.id, enabled)
+                    },
+                    onRemove = { onRemoveSchedule(schedule.id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BrickModeScheduleRow(
+    schedule: BrickModeSchedule,
+    active: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onRemove: () -> Unit
+) {
+    val context = LocalContext.current
+    val daysText = brickModeScheduleDaysText(schedule.daysOfWeek)
+    val startText = remember(schedule.startMinuteOfDay) {
+        formatBrickModeScheduleStart(context, schedule.startMinuteOfDay)
+    }
+    val durationText = formatBrickModeScheduleDuration(schedule.durationMinutes)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (active) Color(0xFF18284A) else Color(0xFF111120))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(
+                        R.string.brick_mode_schedule_summary,
+                        daysText,
+                        startText,
+                        durationText
+                    ),
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                if (active) {
+                    Text(
+                        text = stringResource(R.string.brick_mode_schedule_active_now),
+                        color = Color(0xFF75D69C),
+                        fontSize = 11.sp
+                    )
+                }
+            }
+            Switch(
+                checked = schedule.enabled,
+                onCheckedChange = onEnabledChange,
+                modifier = Modifier.semantics {
+                    contentDescription = context.getString(
+                        R.string.brick_mode_schedule_switch_description,
+                        daysText,
+                        startText
+                    )
+                }
+            )
+        }
+        TextButton(
+            onClick = onRemove,
+            modifier = Modifier.align(Alignment.End)
+        ) {
+            Text(stringResource(R.string.brick_mode_schedule_remove))
+        }
+    }
+}
+
+@Composable
+private fun AddBrickModeScheduleDialog(
+    onDismiss: () -> Unit,
+    onSave: (Set<Int>, Int, Int) -> Unit
+) {
+    val context = LocalContext.current
+    var selectedDays by remember {
+        mutableStateOf(
+            setOf(
+                Calendar.MONDAY,
+                Calendar.TUESDAY,
+                Calendar.WEDNESDAY,
+                Calendar.THURSDAY,
+                Calendar.FRIDAY
+            )
+        )
+    }
+    var startTime by remember { mutableStateOf("09:00") }
+    var durationMinutes by remember { mutableStateOf("60") }
+    var hasError by remember { mutableStateOf(false) }
+    val orderedDays = listOf(
+        Calendar.MONDAY,
+        Calendar.TUESDAY,
+        Calendar.WEDNESDAY,
+        Calendar.THURSDAY,
+        Calendar.FRIDAY,
+        Calendar.SATURDAY,
+        Calendar.SUNDAY
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.brick_mode_schedule_dialog_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = stringResource(R.string.brick_mode_schedule_days_label),
+                    fontWeight = FontWeight.SemiBold
+                )
+                orderedDays.chunked(4).forEach { rowDays ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        rowDays.forEach { day ->
+                            FilterChip(
+                                selected = day in selectedDays,
+                                onClick = {
+                                    selectedDays = if (day in selectedDays) {
+                                        selectedDays - day
+                                    } else {
+                                        selectedDays + day
+                                    }
+                                    hasError = false
+                                },
+                                label = { Text(brickModeDayLabel(context, day)) }
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = startTime,
+                    onValueChange = { value ->
+                        if (value.length <= 5 && value.all { it.isDigit() || it == ':' }) {
+                            startTime = value
+                            hasError = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.brick_mode_schedule_start_label)) },
+                    supportingText = {
+                        Text(stringResource(R.string.brick_mode_schedule_start_hint))
+                    },
+                    isError = hasError && parseBrickModeScheduleStart(startTime) == null,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
+                )
+                OutlinedTextField(
+                    value = durationMinutes,
+                    onValueChange = { value ->
+                        if (value.length <= 4 && value.all(Char::isDigit)) {
+                            durationMinutes = value
+                            hasError = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = {
+                        Text(stringResource(R.string.brick_mode_schedule_duration_label))
+                    },
+                    supportingText = {
+                        Text(stringResource(R.string.brick_mode_schedule_duration_hint))
+                    },
+                    isError = hasError && parseBrickModeScheduleDuration(durationMinutes) == null,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                if (hasError) {
+                    Text(
+                        text = stringResource(R.string.brick_mode_schedule_invalid),
+                        color = Color(0xFFFF8A80),
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val startMinuteOfDay = parseBrickModeScheduleStart(startTime)
+                val duration = parseBrickModeScheduleDuration(durationMinutes)
+                if (selectedDays.isEmpty() || startMinuteOfDay == null || duration == null) {
+                    hasError = true
+                } else {
+                    onSave(selectedDays, startMinuteOfDay, duration)
+                }
+            }) {
+                Text(stringResource(R.string.brick_mode_schedule_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.goal_backup_cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun brickModeScheduleDaysText(daysOfWeek: Set<Int>): String =
+    if (daysOfWeek.size == 7) {
+        stringResource(R.string.brick_mode_schedule_every_day)
+    } else {
+        val context = LocalContext.current
+        listOf(
+            Calendar.MONDAY,
+            Calendar.TUESDAY,
+            Calendar.WEDNESDAY,
+            Calendar.THURSDAY,
+            Calendar.FRIDAY,
+            Calendar.SATURDAY,
+            Calendar.SUNDAY
+        ).filter(daysOfWeek::contains).joinToString(separator = ", ") { day ->
+            brickModeDayLabel(context, day)
+        }
+    }
+
+private fun brickModeDayLabel(context: Context, dayOfWeek: Int): String = context.getString(
+    when (dayOfWeek) {
+        Calendar.MONDAY -> R.string.brick_mode_day_monday
+        Calendar.TUESDAY -> R.string.brick_mode_day_tuesday
+        Calendar.WEDNESDAY -> R.string.brick_mode_day_wednesday
+        Calendar.THURSDAY -> R.string.brick_mode_day_thursday
+        Calendar.FRIDAY -> R.string.brick_mode_day_friday
+        Calendar.SATURDAY -> R.string.brick_mode_day_saturday
+        else -> R.string.brick_mode_day_sunday
+    }
+)
+
+private fun formatBrickModeScheduleStart(context: Context, startMinuteOfDay: Int): String {
+    val calendar = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, startMinuteOfDay / 60)
+        set(Calendar.MINUTE, startMinuteOfDay % 60)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    return DateFormat.getTimeFormat(context).format(calendar.time)
 }
 
 @Composable

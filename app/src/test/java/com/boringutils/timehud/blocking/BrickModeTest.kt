@@ -3,8 +3,11 @@ package com.boringutils.timehud.blocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Calendar
+import java.util.TimeZone
 
 class BrickModeTest {
+    private val utc = TimeZone.getTimeZone("UTC")
     private val catalog = BrickModeCatalog(
         apps = listOf(
             BrickModeApp("com.android.settings", "Settings", alwaysAvailable = true),
@@ -49,6 +52,112 @@ class BrickModeTest {
                 nowMs = 120_000L
             )
         )
+    }
+
+    @Test
+    fun active_weekly_schedule_blocks_when_manual_mode_is_off() {
+        val schedule = schedule(
+            daysOfWeek = setOf(Calendar.MONDAY),
+            startMinuteOfDay = 9 * 60,
+            durationMinutes = 120
+        )
+
+        assertEquals(
+            BlockDecision.Block(BlockReason.BRICK_MODE),
+            BrickModeDecisionEngine.decide(
+                config = BrickModeConfig(enabled = false),
+                packageName = "com.example.social",
+                catalog = catalog,
+                scheduledActive = BrickModeSchedulePolicy.isAnyActive(
+                    listOf(schedule),
+                    utcMillis(2026, Calendar.SEPTEMBER, 7, 10, 0),
+                    utc
+                ),
+                nowMs = utcMillis(2026, Calendar.SEPTEMBER, 7, 10, 0)
+            )
+        )
+    }
+
+    @Test
+    fun weekly_schedule_is_inactive_at_its_end_boundary() {
+        val schedule = schedule(
+            daysOfWeek = setOf(Calendar.MONDAY),
+            startMinuteOfDay = 9 * 60,
+            durationMinutes = 120
+        )
+
+        assertTrue(
+            BrickModeSchedulePolicy.isActive(
+                schedule,
+                utcMillis(2026, Calendar.SEPTEMBER, 7, 10, 59),
+                utc
+            )
+        )
+        assertTrue(
+            !BrickModeSchedulePolicy.isActive(
+                schedule,
+                utcMillis(2026, Calendar.SEPTEMBER, 7, 11, 0),
+                utc
+            )
+        )
+    }
+
+    @Test
+    fun weekly_schedule_can_cross_midnight() {
+        val schedule = schedule(
+            daysOfWeek = setOf(Calendar.FRIDAY),
+            startMinuteOfDay = 23 * 60 + 30,
+            durationMinutes = 120
+        )
+
+        assertTrue(
+            BrickModeSchedulePolicy.isActive(
+                schedule,
+                utcMillis(2026, Calendar.SEPTEMBER, 5, 0, 30),
+                utc
+            )
+        )
+    }
+
+    @Test
+    fun next_schedule_boundary_returns_the_next_start_or_end() {
+        val schedule = schedule(
+            daysOfWeek = setOf(Calendar.MONDAY),
+            startMinuteOfDay = 9 * 60,
+            durationMinutes = 120
+        )
+
+        assertEquals(
+            utcMillis(2026, Calendar.SEPTEMBER, 7, 9, 0),
+            BrickModeSchedulePolicy.nextBoundaryEpochMs(
+                listOf(schedule),
+                utcMillis(2026, Calendar.SEPTEMBER, 7, 8, 0),
+                utc
+            )
+        )
+        assertEquals(
+            utcMillis(2026, Calendar.SEPTEMBER, 7, 11, 0),
+            BrickModeSchedulePolicy.nextBoundaryEpochMs(
+                listOf(schedule),
+                utcMillis(2026, Calendar.SEPTEMBER, 7, 10, 0),
+                utc
+            )
+        )
+    }
+
+    @Test
+    fun schedule_codec_round_trips_valid_entries_and_skips_invalid_entries() {
+        val schedules = listOf(
+            schedule(
+                id = "weekday-focus",
+                daysOfWeek = setOf(Calendar.MONDAY, Calendar.WEDNESDAY, Calendar.FRIDAY),
+                startMinuteOfDay = 13 * 60 + 15,
+                durationMinutes = 90
+            )
+        )
+
+        assertEquals(schedules, BrickModeScheduleCodec.decode(BrickModeScheduleCodec.encode(schedules)))
+        assertEquals(emptyList<BrickModeSchedule>(), BrickModeScheduleCodec.decode("broken|data"))
     }
 
     @Test
@@ -200,4 +309,22 @@ class BrickModeTest {
             )
         )
     }
+
+    private fun schedule(
+        id: String = "schedule-id",
+        daysOfWeek: Set<Int>,
+        startMinuteOfDay: Int,
+        durationMinutes: Int
+    ) = BrickModeSchedule(
+        id = id,
+        daysOfWeek = daysOfWeek,
+        startMinuteOfDay = startMinuteOfDay,
+        durationMinutes = durationMinutes
+    )
+
+    private fun utcMillis(year: Int, month: Int, day: Int, hour: Int, minute: Int): Long =
+        Calendar.getInstance(utc).apply {
+            clear()
+            set(year, month, day, hour, minute)
+        }.timeInMillis
 }

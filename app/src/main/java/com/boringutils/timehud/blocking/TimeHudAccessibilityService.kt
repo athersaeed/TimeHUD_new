@@ -114,10 +114,20 @@ class TimeHudAccessibilityService : AccessibilityService() {
     }
 
     private fun evaluateWindows() {
+        val nowWallMs = System.currentTimeMillis()
         val rules = AppBlockSettings.loadRules(this).associateBy { it.packageName }
-        val brickModeConfig = BrickModeSettings.load(this)
+        val brickModeConfig = BrickModeSettings.load(this, nowWallMs)
+        val brickModeSchedules = BrickModeSettings.loadSchedules(this)
+        val scheduledBrickModeActive = BrickModeSchedulePolicy.isAnyActive(
+            brickModeSchedules,
+            nowWallMs
+        )
         val currentBrickModeCatalog = brickModeCatalog
-        if (rules.isEmpty() && !brickModeConfig.enabled) {
+        if (
+            rules.isEmpty() &&
+            !brickModeConfig.enabled &&
+            brickModeSchedules.none(BrickModeSchedule::enabled)
+        ) {
             updateFocusedPackage(null)
             overlayController.clear()
             return
@@ -135,7 +145,9 @@ class TimeHudAccessibilityService : AccessibilityService() {
             val brickModeDecision = BrickModeDecisionEngine.decide(
                 config = brickModeConfig,
                 packageName = packageName,
-                catalog = currentBrickModeCatalog
+                catalog = currentBrickModeCatalog,
+                scheduledActive = scheduledBrickModeActive,
+                nowMs = nowWallMs
             )
             if (brickModeDecision == BlockDecision.Allow && rule == null) {
                 return@mapNotNull null
@@ -168,7 +180,6 @@ class TimeHudAccessibilityService : AccessibilityService() {
         seedUninitializedUsage(rules.values)
 
         val nowElapsedMs = SystemClock.elapsedRealtime()
-        val nowWallMs = System.currentTimeMillis()
         val targets = appWindows.mapNotNull { observed ->
             val focusedUsageMs = if (
                 observed.brickModeDecision == BlockDecision.Allow && observed.rule != null
@@ -202,6 +213,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         scheduleNextBoundary(
             appWindows = appWindows,
             brickModeConfig = brickModeConfig,
+            brickModeSchedules = brickModeSchedules,
             nowElapsedMs = nowElapsedMs,
             nowWallMs = nowWallMs
         )
@@ -292,6 +304,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
     private fun scheduleNextBoundary(
         appWindows: List<ObservedAppWindow>,
         brickModeConfig: BrickModeConfig,
+        brickModeSchedules: List<BrickModeSchedule>,
         nowElapsedMs: Long,
         nowWallMs: Long
     ) {
@@ -309,9 +322,17 @@ class TimeHudAccessibilityService : AccessibilityService() {
             ?.takeIf { it > 0L }
         val brickModeRemainingMs = brickModeConfig.remainingMs(nowWallMs)
             ?.takeIf { it > 0L }
-        val nextBoundaryMs = listOfNotNull(appLimitRemainingMs, brickModeRemainingMs).minOrNull()
-            ?: return
-        scheduleEvaluation(delayMs = nextBoundaryMs.coerceAtMost(MAX_BOUNDARY_TIMER_DELAY_MS))
+        val scheduledBoundaryRemainingMs = BrickModeSchedulePolicy.nextBoundaryEpochMs(
+            schedules = brickModeSchedules,
+            nowMs = nowWallMs
+        )?.let { boundaryMs -> boundaryMs - nowWallMs }
+            ?.takeIf { it > 0L }
+        val nextBoundaryMs = listOfNotNull(
+            appLimitRemainingMs?.coerceAtMost(MAX_LIMIT_TIMER_DELAY_MS),
+            brickModeRemainingMs,
+            scheduledBoundaryRemainingMs
+        ).minOrNull() ?: return
+        scheduleEvaluation(delayMs = nextBoundaryMs)
     }
 
     private fun returnHome() {
@@ -366,7 +387,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
     private companion object {
         const val WINDOW_DEBOUNCE_MS = 120L
         const val HOME_NAVIGATION_DELAY_MS = 350L
-        const val MAX_BOUNDARY_TIMER_DELAY_MS = 30_000L
+        const val MAX_LIMIT_TIMER_DELAY_MS = 30_000L
         const val BRICK_CATALOG_REFRESH_MS = 60_000L
     }
 }

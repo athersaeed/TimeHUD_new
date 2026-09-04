@@ -54,4 +54,28 @@ class BrickModeScreenTest {
         assertEquals("1h 1m 1s", formatBrickModeRemaining(3_660_001L))
         assertEquals("1d 1h 1m 1s", formatBrickModeRemaining(90_060_001L))
     }
+
+    @Test
+    fun schedule_start_accepts_24_hour_time_and_rejects_invalid_values() {
+        assertEquals(9 * 60 + 30, parseBrickModeScheduleStart("09:30"))
+        assertEquals(21 * 60, parseBrickModeScheduleStart("21:00"))
+        assertEquals(null, parseBrickModeScheduleStart("24:00"))
+        assertEquals(null, parseBrickModeScheduleStart("9:5"))
+        assertEquals(null, parseBrickModeScheduleStart("morning"))
+    }
+
+    @Test
+    fun schedule_duration_accepts_up_to_one_day() {
+        assertEquals(90, parseBrickModeScheduleDuration("90"))
+        assertEquals(24 * 60, parseBrickModeScheduleDuration("1440"))
+        assertEquals(null, parseBrickModeScheduleDuration("0"))
+        assertEquals(null, parseBrickModeScheduleDuration("1441"))
+    }
+
+    @Test
+    fun schedule_duration_formats_hours_and_minutes() {
+        assertEquals("45m", formatBrickModeScheduleDuration(45))
+        assertEquals("2h", formatBrickModeScheduleDuration(120))
+        assertEquals("2h 15m", formatBrickModeScheduleDuration(135))
+    }
 }

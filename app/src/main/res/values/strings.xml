@@ -131,7 +131,7 @@
         <item quantity="one">%1$d chosen app available</item>
         <item quantity="other">%1$d chosen apps available</item>
     </plurals>
-    <string name="brick_mode_switch_description">Turn Brick Mode on or off</string>
+    <string name="brick_mode_switch_description">Turn manual Brick Mode on or off</string>
     <string name="brick_mode_background_title">Background apps stay running</string>
     <string name="brick_mode_background_message">Brick Mode only covers visible launchable apps. It does not stop background services or system processes.</string>
     <string name="brick_mode_access_required_title">App Control is off</string>
@@ -157,4 +157,29 @@
     <string name="brick_mode_timer_active">Timed Brick Mode: %1$s remaining</string>
     <string name="brick_mode_timer_until_off">Brick Mode will stay on until you turn it off. Set a duration below to add an automatic stop.</string>
     <string name="brick_mode_timer_remaining">%1$s remaining</string>
+    <string name="brick_mode_active_scheduled">Brick Mode is on — scheduled</string>
+    <string name="brick_mode_schedules_title">Schedules</string>
+    <string name="brick_mode_schedules_description">Automatically turn Brick Mode on at recurring weekly times.</string>
+    <string name="brick_mode_schedules_empty">No schedules yet.</string>
+    <string name="brick_mode_schedule_add">Add</string>
+    <string name="brick_mode_schedule_dialog_title">Add Brick Mode schedule</string>
+    <string name="brick_mode_schedule_days_label">Repeat on</string>
+    <string name="brick_mode_schedule_start_label">Start time</string>
+    <string name="brick_mode_schedule_start_hint">Use 24-hour time, such as 09:30 or 21:00</string>
+    <string name="brick_mode_schedule_duration_label">Duration in minutes</string>
+    <string name="brick_mode_schedule_duration_hint">From 1 minute to 24 hours</string>
+    <string name="brick_mode_schedule_invalid">Choose at least one day and enter a valid start time and duration.</string>
+    <string name="brick_mode_schedule_save">Save schedule</string>
+    <string name="brick_mode_schedule_remove">Remove</string>
+    <string name="brick_mode_schedule_every_day">Every day</string>
+    <string name="brick_mode_schedule_summary">%1$s • %2$s • %3$s</string>
+    <string name="brick_mode_schedule_active_now">Active now</string>
+    <string name="brick_mode_schedule_switch_description">Enable schedule for %1$s at %2$s</string>
+    <string name="brick_mode_day_monday">Mon</string>
+    <string name="brick_mode_day_tuesday">Tue</string>
+    <string name="brick_mode_day_wednesday">Wed</string>
+    <string name="brick_mode_day_thursday">Thu</string>
+    <string name="brick_mode_day_friday">Fri</string>
+    <string name="brick_mode_day_saturday">Sat</string>
+    <string name="brick_mode_day_sunday">Sun</string>
 </resources>

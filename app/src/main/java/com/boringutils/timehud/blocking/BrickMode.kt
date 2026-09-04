@@ -7,6 +7,8 @@ import android.content.pm.ResolveInfo
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.edit
+import java.util.Calendar
+import java.util.TimeZone
 
 internal data class BrickModeConfig(
     val enabled: Boolean = false,
@@ -36,11 +38,117 @@ internal object BrickModeTimer {
         }
 }
 
+internal data class BrickModeSchedule(
+    val id: String,
+    val enabled: Boolean = true,
+    val daysOfWeek: Set<Int>,
+    val startMinuteOfDay: Int,
+    val durationMinutes: Int
+) {
+    fun isValid(): Boolean = id.isNotBlank() &&
+        daysOfWeek.isNotEmpty() &&
+        daysOfWeek.all { it in Calendar.SUNDAY..Calendar.SATURDAY } &&
+        startMinuteOfDay in 0 until MINUTES_PER_DAY &&
+        durationMinutes in 1..MINUTES_PER_DAY
+
+    private companion object {
+        const val MINUTES_PER_DAY = 24 * 60
+    }
+}
+
+internal object BrickModeSchedulePolicy {
+    fun isActive(
+        schedule: BrickModeSchedule,
+        nowMs: Long,
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): Boolean {
+        if (!schedule.enabled || !schedule.isValid()) return false
+        return (-1..0).any { dayOffset ->
+            val startMs = occurrenceStartMs(schedule, nowMs, dayOffset, timeZone)
+            val endMs = startMs + schedule.durationMinutes * 60_000L
+            nowMs >= startMs && nowMs < endMs
+        }
+    }
+
+    fun isAnyActive(
+        schedules: List<BrickModeSchedule>,
+        nowMs: Long,
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): Boolean = schedules.any { isActive(it, nowMs, timeZone) }
+
+    fun nextBoundaryEpochMs(
+        schedules: List<BrickModeSchedule>,
+        nowMs: Long,
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): Long? = schedules.asSequence()
+        .filter { it.enabled && it.isValid() }
+        .flatMap { schedule ->
+            (-1..7).asSequence().flatMap { dayOffset ->
+                val startMs = occurrenceStartMs(schedule, nowMs, dayOffset, timeZone)
+                sequenceOf(startMs, startMs + schedule.durationMinutes * 60_000L)
+            }
+        }
+        .filter { it > nowMs }
+        .minOrNull()
+
+    private fun occurrenceStartMs(
+        schedule: BrickModeSchedule,
+        nowMs: Long,
+        dayOffset: Int,
+        timeZone: TimeZone
+    ): Long {
+        val calendar = Calendar.getInstance(timeZone).apply {
+            timeInMillis = nowMs
+            add(Calendar.DAY_OF_YEAR, dayOffset)
+        }
+        if (calendar.get(Calendar.DAY_OF_WEEK) !in schedule.daysOfWeek) return Long.MIN_VALUE
+        calendar.set(Calendar.HOUR_OF_DAY, schedule.startMinuteOfDay / 60)
+        calendar.set(Calendar.MINUTE, schedule.startMinuteOfDay % 60)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        return calendar.timeInMillis
+    }
+}
+
+internal object BrickModeScheduleCodec {
+    fun encode(schedules: List<BrickModeSchedule>): String = schedules
+        .filter(BrickModeSchedule::isValid)
+        .joinToString(separator = "\n") { schedule ->
+            val days = schedule.daysOfWeek.sorted().joinToString(separator = ",")
+            listOf(
+                schedule.id,
+                schedule.enabled,
+                days,
+                schedule.startMinuteOfDay,
+                schedule.durationMinutes
+            ).joinToString(separator = "|")
+        }
+
+    fun decode(value: String): List<BrickModeSchedule> = value.lineSequence()
+        .mapNotNull(::decodeSchedule)
+        .distinctBy(BrickModeSchedule::id)
+        .toList()
+
+    private fun decodeSchedule(value: String): BrickModeSchedule? {
+        val parts = value.split('|')
+        if (parts.size != 5) return null
+        val schedule = BrickModeSchedule(
+            id = parts[0],
+            enabled = parts[1].toBooleanStrictOrNull() ?: return null,
+            daysOfWeek = parts[2].split(',').mapNotNullTo(mutableSetOf(), String::toIntOrNull),
+            startMinuteOfDay = parts[3].toIntOrNull() ?: return null,
+            durationMinutes = parts[4].toIntOrNull() ?: return null
+        )
+        return schedule.takeIf(BrickModeSchedule::isValid)
+    }
+}
+
 internal object BrickModeSettings {
     private const val PREFERENCES_NAME = "timehud_brick_mode"
     private const val ENABLED_KEY = "enabled"
     private const val ALLOWED_PACKAGES_KEY = "allowed_packages"
     private const val ENDS_AT_EPOCH_MS_KEY = "ends_at_epoch_ms"
+    private const val SCHEDULES_KEY = "schedules"
 
     fun load(context: Context, nowMs: Long = System.currentTimeMillis()): BrickModeConfig {
         val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -90,6 +198,37 @@ internal object BrickModeSettings {
             .toMutableSet()
         if (allowed) packages += packageName else packages -= packageName
         preferences.edit { putStringSet(ALLOWED_PACKAGES_KEY, packages) }
+    }
+
+    fun loadSchedules(context: Context): List<BrickModeSchedule> {
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        return BrickModeScheduleCodec.decode(preferences.getString(SCHEDULES_KEY, "").orEmpty())
+    }
+
+    fun saveSchedule(context: Context, schedule: BrickModeSchedule): Boolean {
+        if (!schedule.isValid()) return false
+        val schedules = loadSchedules(context).toMutableList()
+        val existingIndex = schedules.indexOfFirst { it.id == schedule.id }
+        if (existingIndex >= 0) schedules[existingIndex] = schedule else schedules += schedule
+        saveSchedules(context, schedules)
+        return true
+    }
+
+    fun setScheduleEnabled(context: Context, scheduleId: String, enabled: Boolean) {
+        val schedules = loadSchedules(context).map { schedule ->
+            if (schedule.id == scheduleId) schedule.copy(enabled = enabled) else schedule
+        }
+        saveSchedules(context, schedules)
+    }
+
+    fun removeSchedule(context: Context, scheduleId: String) {
+        saveSchedules(context, loadSchedules(context).filterNot { it.id == scheduleId })
+    }
+
+    private fun saveSchedules(context: Context, schedules: List<BrickModeSchedule>) {
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit {
+            putString(SCHEDULES_KEY, BrickModeScheduleCodec.encode(schedules))
+        }
     }
 }
 
@@ -158,9 +297,12 @@ internal object BrickModeDecisionEngine {
         config: BrickModeConfig,
         packageName: String,
         catalog: BrickModeCatalog,
+        scheduledActive: Boolean = false,
         nowMs: Long = System.currentTimeMillis()
     ): BlockDecision = when {
-        !config.isActive(nowMs) -> BlockDecision.Allow
+        !config.isActive(nowMs) && !scheduledActive -> {
+            BlockDecision.Allow
+        }
         packageName !in catalog.launchablePackages -> BlockDecision.Allow
         packageName in catalog.alwaysAvailablePackages -> BlockDecision.Allow
         packageName in config.allowedPackages -> BlockDecision.Allow
