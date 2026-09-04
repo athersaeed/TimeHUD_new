@@ -34,8 +34,15 @@ class TimeHudAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val usageExecutor = Executors.newSingleThreadExecutor()
     private val usageSeedInProgress = AtomicBoolean(false)
+    private val brickCatalogLoadInProgress = AtomicBoolean(false)
     private val destroyed = AtomicBoolean(false)
     private lateinit var overlayController: BlockingOverlayController
+
+    @Volatile
+    private var brickModeCatalog = BrickModeCatalog()
+
+    @Volatile
+    private var brickCatalogLoadedAtElapsedMs = 0L
 
     private var focusedPackage: String? = null
     private var focusStartedElapsedMs = 0L
@@ -49,10 +56,14 @@ class TimeHudAccessibilityService : AccessibilityService() {
             service = this,
             onClose = ::returnHome
         )
+        refreshBrickModeCatalog(force = true)
         scheduleEvaluation(delayMs = 0L)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            refreshBrickModeCatalog()
+        }
         scheduleEvaluation()
     }
 
@@ -79,9 +90,30 @@ class TimeHudAccessibilityService : AccessibilityService() {
         mainHandler.postDelayed(evaluateRunnable, delayMs)
     }
 
+    private fun refreshBrickModeCatalog(force: Boolean = false) {
+        val nowElapsedMs = SystemClock.elapsedRealtime()
+        val catalogIsFresh = brickCatalogLoadedAtElapsedMs > 0L &&
+            nowElapsedMs - brickCatalogLoadedAtElapsedMs < BRICK_CATALOG_REFRESH_MS
+        if ((!force && catalogIsFresh) || !brickCatalogLoadInProgress.compareAndSet(false, true)) {
+            return
+        }
+        usageExecutor.execute {
+            val loadedCatalog = runCatching { BrickModeCatalogLoader.load(this) }
+                .getOrDefault(BrickModeCatalog())
+            brickModeCatalog = loadedCatalog
+            brickCatalogLoadedAtElapsedMs = SystemClock.elapsedRealtime()
+            brickCatalogLoadInProgress.set(false)
+            if (!destroyed.get()) {
+                mainHandler.post { scheduleEvaluation(delayMs = 0L) }
+            }
+        }
+    }
+
     private fun evaluateWindows() {
         val rules = AppBlockSettings.loadRules(this).associateBy { it.packageName }
-        if (rules.isEmpty()) {
+        val brickModeConfig = BrickModeSettings.load(this)
+        val currentBrickModeCatalog = brickModeCatalog
+        if (rules.isEmpty() && !brickModeConfig.enabled) {
             updateFocusedPackage(null)
             overlayController.clear()
             return
@@ -95,16 +127,30 @@ class TimeHudAccessibilityService : AccessibilityService() {
             val root = runCatching { window.root }.getOrNull() ?: return@mapNotNull null
             val packageName = root.packageName?.toString()?.takeIf { it.isNotBlank() }
                 ?: return@mapNotNull null
-            val rule = rules[packageName] ?: return@mapNotNull null
-            val signals = AppWindowInspector.inspect(
-                root = root,
-                windowTitle = runCatching { window.title?.toString() }.getOrNull()
-            ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics))
+            val rule = rules[packageName]
+            val brickModeDecision = BrickModeDecisionEngine.decide(
+                config = brickModeConfig,
+                packageName = packageName,
+                catalog = currentBrickModeCatalog
+            )
+            if (brickModeDecision == BlockDecision.Allow && rule == null) {
+                return@mapNotNull null
+            }
+            val surface = if (rule != null && brickModeDecision == BlockDecision.Allow) {
+                val signals = AppWindowInspector.inspect(
+                    root = root,
+                    windowTitle = runCatching { window.title?.toString() }.getOrNull()
+                ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics))
+                AppSurfaceClassifier.classify(packageName, signals)
+            } else {
+                AppSurface.UNKNOWN
+            }
             ObservedAppWindow(
                 geometry = geometry,
                 packageName = packageName,
-                surface = AppSurfaceClassifier.classify(packageName, signals),
-                rule = rule
+                surface = surface,
+                rule = rule,
+                brickModeDecision = brickModeDecision
             )
         }
 
@@ -120,18 +166,24 @@ class TimeHudAccessibilityService : AccessibilityService() {
         val nowElapsedMs = SystemClock.elapsedRealtime()
         val nowWallMs = System.currentTimeMillis()
         val targets = appWindows.mapNotNull { observed ->
-            val usageMs = currentFocusedUsageMs(
-                packageName = observed.packageName,
-                nowElapsedMs = nowElapsedMs,
-                nowWallMs = nowWallMs
-            )
-            when (
-                val decision = AppBlockDecisionEngine.decide(
-                    rule = observed.rule,
-                    focusedUsageMs = usageMs,
-                    surface = observed.surface
-                )
+            val focusedUsageMs = if (
+                observed.brickModeDecision == BlockDecision.Allow && observed.rule != null
             ) {
+                currentFocusedUsageMs(
+                    packageName = observed.packageName,
+                    nowElapsedMs = nowElapsedMs,
+                    nowWallMs = nowWallMs
+                )
+            } else {
+                0L
+            }
+            val decision = AppControlDecisionEngine.decide(
+                brickModeDecision = observed.brickModeDecision,
+                appBlockRule = observed.rule,
+                focusedUsageMs = focusedUsageMs,
+                surface = observed.surface
+            )
+            when (decision) {
                 BlockDecision.Allow -> null
                 is BlockDecision.Block -> BlockTarget(
                     windowId = observed.geometry.id,
@@ -234,7 +286,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         nowWallMs: Long
     ) {
         val focused = appWindows.firstOrNull { it.packageName == focusedPackage } ?: return
-        val limitMs = focused.rule.dailyLimitMinutes?.toLong()?.times(60_000L) ?: return
+        val limitMs = focused.rule?.dailyLimitMinutes?.toLong()?.times(60_000L) ?: return
         val remainingMs = limitMs - currentFocusedUsageMs(
             focused.packageName,
             nowElapsedMs,
@@ -291,6 +343,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         const val WINDOW_DEBOUNCE_MS = 120L
         const val HOME_NAVIGATION_DELAY_MS = 350L
         const val MAX_LIMIT_TIMER_DELAY_MS = 30_000L
+        const val BRICK_CATALOG_REFRESH_MS = 60_000L
     }
 }
 
@@ -315,7 +368,8 @@ private data class ObservedAppWindow(
     val geometry: WindowGeometry,
     val packageName: String,
     val surface: AppSurface,
-    val rule: AppBlockRule
+    val rule: AppBlockRule?,
+    val brickModeDecision: BlockDecision
 )
 
 private data class BlockTarget(

@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 enum class TimeHudDestination(@param:StringRes val titleRes: Int) {
     GOALS(R.string.nav_goals),
     APP_USAGE(R.string.nav_app_usage),
+    BRICK_MODE(R.string.nav_brick_mode),
     APP_LIMITS(R.string.nav_app_limits),
     PERMISSIONS(R.string.nav_permissions)
 }
@@ -109,6 +110,11 @@ fun TimeHudDrawerScaffold(
                         destination = TimeHudDestination.APP_USAGE,
                         selectedDestination = selectedDestination,
                         onClick = { selectDestination(TimeHudDestination.APP_USAGE) }
+                    )
+                    DrawerItem(
+                        destination = TimeHudDestination.BRICK_MODE,
+                        selectedDestination = selectedDestination,
+                        onClick = { selectDestination(TimeHudDestination.BRICK_MODE) }
                     )
                     DrawerItem(
                         destination = TimeHudDestination.APP_LIMITS,

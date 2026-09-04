@@ -10,7 +10,7 @@ TimeHUD is a native, local-only Android focus/accountability app.
 
 Core flow:
 
-1. The user opens the single Compose control activity in `MainActivity` and switches among Goals, App usage, App limits, and Permissions.
+1. The user opens the single Compose control activity in `MainActivity` and switches among Goals, App usage, Brick mode, App limits, and Permissions.
 2. The user grants overlay access and usage access.
 3. The user can edit short-term and long-term goals and optionally grant calendar read access.
 4. Starting the HUD launches `OverlayService` as a foreground service.
@@ -18,7 +18,7 @@ Core flow:
 6. At newly observed five-minute usage buckets, it is replaced by the same full-screen goal check-in.
 7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, or close it. Bubble-opened check-ins close immediately; automatic five-minute check-ins enforce a five-second delay.
 8. The service can restart after boot or package replacement when saved active state and required permissions allow it.
-9. Independently of the HUD service, an optional accessibility service enforces configured per-app daily limits and supported in-app section rules for YouTube, Instagram, Facebook, Snapchat, and X. It preserves higher-layer multi-window/pop-up regions, keeps Instagram Messages exempt, and presents the shared goal check-in over blocked content. After the five-second pause, Close returns to Android Home.
+9. Independently of the HUD service, an optional accessibility service enforces Brick Mode plus configured per-app daily limits and supported in-app section rules for YouTube, Instagram, Facebook, Snapchat, and X. Brick Mode blocks unchosen launchable app windows while always allowing protected essential apps; it never stops background services. The service preserves higher-layer multi-window/pop-up regions, keeps Instagram Messages exempt from section rules, and presents the shared goal check-in over blocked content. After the five-second pause, Close returns to Android Home.
 
 Important timing behavior:
 
@@ -90,9 +90,12 @@ app/
       blocking/
         AppBlockModels.kt
         AppBlockSettings.kt
+        BrickMode.kt
         TimeHudAccessibilityService.kt
       ui/blocking/
         AppBlockingScreen.kt
+      ui/brick/
+        BrickModeScreen.kt
       ui/theme/
     res/
       layout/overlay_passive.xml
@@ -265,6 +268,14 @@ Preserve these unless the request explicitly changes them.
 - An actively selected/current Instagram Stories, Reels, or Explore surface must beat a stale Messages container left in the accessibility tree; an actively selected Messages tab is classified as either inbox or open thread rather than receiving a blanket exemption.
 - Blocking overlays cover only the target window's exposed regions; higher-layer pop-up/system windows must remain visible and interactive.
 - Disabling or revoking the accessibility service must remove service-owned blocking overlays.
+
+### Brick Mode behavior
+
+- Brick Mode is off by default and persists its enabled state and chosen package allow-list locally.
+- Enforcement applies only to visible packages that Android reports as launchable. Background-only services and non-launchable system processes must fail open and remain unaffected.
+- TimeHUD, detected Home launchers, Android Settings, and installed apps matching the protected reference list remain available even if the user does not choose them.
+- A chosen app remains subject to any separately configured App limits rule; Brick Mode does not erase or bypass those rules.
+- Closing a Brick Mode check-in returns Home, which must remain reachable.
 
 ## Known Baseline Risks to Verify
 

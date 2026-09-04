@@ -15,13 +15,17 @@ class MainNavigationTest {
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun drawer_opens_app_usage_app_limits_and_permissions_pages() {
+    fun drawer_opens_app_usage_brick_mode_app_limits_and_permissions_pages() {
         val context = composeRule.activity
         val openMenu = context.getString(R.string.open_navigation_menu)
 
         composeRule.onNodeWithContentDescription(openMenu).performClick()
         composeRule.onNodeWithText(context.getString(R.string.nav_app_usage)).performClick()
         composeRule.onNodeWithText(context.getString(R.string.app_usage_heading)).assertExists()
+
+        composeRule.onNodeWithContentDescription(openMenu).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.nav_brick_mode)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.brick_mode_heading)).assertExists()
 
         composeRule.onNodeWithContentDescription(openMenu).performClick()
         composeRule.onNodeWithText(context.getString(R.string.nav_app_limits)).performClick()

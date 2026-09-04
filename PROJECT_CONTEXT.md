@@ -17,7 +17,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 
 ### Primary user journey
 
-1. Launch the single `MainActivity` from the app icon. The **Goals** destination opens first, with a hamburger drawer for **Goals**, **App usage**, **App limits**, and **Permissions**.
+1. Launch the single `MainActivity` from the app icon. The **Goals** destination opens first, with a hamburger drawer for **Goals**, **App usage**, **Brick mode**, **App limits**, and **Permissions**.
 2. Open **Permissions** from the bottom of the drawer and grant special overlay access and usage access. The **Start HUD** button remains disabled until both are detected (`MainActivity.kt`). Calendar access is optional and is requested on this page.
 3. On **Goals**, optionally edit short-term and long-term goals. The **Goal Backup** panel can export the current editor contents to JSON or restore a validated JSON backup after confirmation. The system document picker supplies one-time file access; no storage permission is requested (`MainActivity.kt`, `ui/backup/GoalBackupPanel.kt`).
 4. Optionally import today's visible calendar events into the short-term text after calendar access is granted (`MainActivity.kt`, `CalendarAgenda.kt`).
@@ -28,8 +28,9 @@ This document is a source-based technical handoff for the checked-in Android pro
 9. The persistent notification opens `MainActivity`. **Stop HUD** stops the service and clears the restart preference (`OverlayService.kt:100-125`, `MainActivity.kt:130-132`).
 10. If the HUD was marked active, boot or package replacement attempts to restart it when overlay and usage permissions are still present (`BootReceiver.kt:17-35`).
 11. Open **App usage** to refresh a top-five horizontal bar chart and a full longest-first list of per-app foreground time since the same 3:00 AM boundary. This history is read locally through `UsageStatsManager` and is not persisted or uploaded (`ui/usage/`).
-12. Open **App limits** to search by app name or package and configure daily focused-use limits for launchable apps. Configured and recently used apps sort first. Supported per-section controls are YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Explore. Instagram can exempt an actually open chat, while the Messages inbox itself still shows the check-in when section blocking is configured. Enabling the optional TimeHUD accessibility service applies those rules independently of whether the HUD foreground service is running. Blocked content shows the same timer, agenda, and goals check-in used by the HUD; its Close button unlocks after five seconds and sends the user to Android Home (`ActiveOverlayContentController.kt`, `ui/blocking/`, `blocking/`).
-13. The accessibility service observes all interactive windows, classifies supported navigation state locally, and draws touch-blocking accessibility-overlay pieces over only the exposed portion of a limited window. Higher-layer Samsung Pop-up View, split-screen, keyboard, and system-window rectangles are subtracted so they remain usable.
+12. Open **Brick mode** to search installed launchable apps and choose the few that remain available. Clock, Digital Detox, Digital Wellbeing, Google Play Store, Google Wallet, Lock My Phone, Messages, Niagara Launcher, Outlook, Phone, Settings, TimeHUD, and detected Home launchers are protected automatically when installed. Brick Mode is off by default and only covers visible unchosen launcher apps; it does not stop background services or system processes (`ui/brick/`, `blocking/BrickMode.kt`).
+13. Open **App limits** to search by app name or package and configure daily focused-use limits for launchable apps. Configured and recently used apps sort first. Supported per-section controls are YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Explore. Instagram can exempt an actually open chat, while the Messages inbox itself still shows the check-in when section blocking is configured. Enabling the optional TimeHUD accessibility service applies those rules independently of whether the HUD foreground service is running. Blocked content shows the same timer, agenda, and goals check-in used by the HUD; its Close button unlocks after five seconds and sends the user to Android Home (`ActiveOverlayContentController.kt`, `ui/blocking/`, `blocking/`).
+14. The accessibility service observes all interactive windows, applies Brick Mode before individual app-limit rules, classifies supported navigation state locally, and draws touch-blocking accessibility-overlay pieces over only the exposed portion of a blocked window. Higher-layer Samsung Pop-up View, split-screen, keyboard, and system-window rectangles are subtracted so they remain usable.
 
 ### Features confirmed in the current source
 
@@ -38,9 +39,10 @@ This document is a source-based technical handoff for the checked-in Android pro
 - Screen-interactive-time calculation with a 3:00 AM boundary.
 - Five-minute-bucket full-screen check-ins.
 - Editable short-term and long-term goal lists.
-- Hamburger navigation with Goals as the default page, App usage and App limits as secondary pages, and Permissions anchored at the bottom of the drawer.
+- Hamburger navigation with Goals as the default page, App usage, Brick mode, and App limits as secondary pages, and Permissions anchored at the bottom of the drawer.
 - Per-app foreground-time chart and descending list using the 3:00 AM daily boundary.
 - Searchable, configurable daily focused-use app limits, locally seeded from the current usage total.
+- Searchable Brick Mode allow-list with an off-by-default master switch and protected essential/Home/Settings apps.
 - Optional section blocking for YouTube, Instagram, Facebook, Snapchat, and X, with a conversation-level open-chat exemption for Instagram but no blanket inbox exemption.
 - Multi-window-aware accessibility shields that preserve higher-layer pop-up regions.
 - Manual goal-only JSON export and replacement import through Android's Storage Access Framework, including confirmation and validation.
@@ -71,9 +73,9 @@ This document is a source-based technical handoff for the checked-in Android pro
 | Java/JVM | Java source and target compatibility 11 (`app/build.gradle.kts:34-37`). Gradle daemon toolchain 21 (`gradle/gradle-daemon-jvm.properties:12`); IDE metadata selects `jbr-21` (`.idea/misc.xml:3`). |
 | Core libraries | AndroidX Core KTX `1.18.0`, Lifecycle Runtime/ViewModel Compose `2.10.0`, and Activity Compose `1.13.0` (`gradle/libs.versions.toml`, `app/build.gradle.kts`). |
 | Async/reactive | `StateFlow` for service-running and app-usage UI state; Android main-thread `Handler` for service ticks and delayed overlay UI work; lifecycle-aware coroutines with `Dispatchers.IO` for backup files and app-usage history. No RxJava. |
-| Navigation | One launcher activity with a state-based Material 3 navigation drawer. Goals is the default destination; App usage, App limits, and Permissions are sibling destinations. No Navigation Compose graph or route arguments are needed. |
+| Navigation | One launcher activity with a state-based Material 3 navigation drawer. Goals is the default destination; App usage, Brick mode, App limits, and Permissions are sibling destinations. No Navigation Compose graph or route arguments are needed. |
 | Dependency injection | None. Android services are acquired through `Context`; helper objects are Kotlin singletons. |
-| Persistence | Android `SharedPreferences` for goals, service state, bubble position, app-limit rules, and daily focused-use totals; no Room, DataStore, files, or cache database. |
+| Persistence | Android `SharedPreferences` for goals, service state, bubble position, Brick Mode settings, app-limit rules, and daily focused-use totals; no Room, DataStore, files, or cache database. |
 | Networking/backend | None. No Retrofit, Ktor, Volley, Firebase, Supabase, API models, base URL, or backend service. |
 | Serialization | Android platform `org.json.JSONObject` for the versioned goal-backup JSON. A test-only `org.json:json:20260522` dependency supplies the same API to JVM tests and is not packaged in the app. |
 | Image loading | None. Only packaged launcher resources. |
@@ -121,8 +123,8 @@ UsageStatsManager foreground/background events
   -> AppUsageViewModel StateFlow
   -> chart and descending app rows
 
-AccessibilityWindowInfo trees + app-limit SharedPreferences
-  -> TimeHudAccessibilityService local supported-app classifier
+AccessibilityWindowInfo trees + Brick Mode/app-limit SharedPreferences
+  -> launchable/essential-app policy and local supported-app classifier
   -> focused-window daily accounting
   -> app-limit decision engine
   -> exposed target region minus higher-layer windows
@@ -191,10 +193,13 @@ TimeHUD_cloud/
         blocking/
           AppBlockModels.kt            Pure rules, decisions, classifiers, and rectangle subtraction
           AppBlockSettings.kt          Rule/accessibility-status/focused-use persistence helpers
+          BrickMode.kt                 Allow-list persistence, launchable-app catalog, essential-app policy
           TimeHudAccessibilityService.kt
-                                        Window observer, supported-app inspection, usage enforcement, overlays
+                                        Window observer, Brick Mode/app-limit enforcement, overlays
         ui/blocking/
           AppBlockingScreen.kt         App-limit destination, ViewModel, and rule editor
+        ui/brick/
+          BrickModeScreen.kt           Searchable allow-list destination and ViewModel
         ui/theme/
           Color.kt                     Template Compose color tokens
           Theme.kt                     Material 3 dynamic/light/dark theme selection
@@ -238,6 +243,7 @@ The overlay entries below are service-owned window layers rather than Android na
 |---|---|---|---|---|---|---|
 | Goals page | Launcher `MAIN`/`LAUNCHER` -> `.MainActivity`; `GOALS` drawer destination | `MainActivity.kt`, Compose | None | Default in-app page; opened by launcher, notification, drawer, or Back from a secondary page | Edit/save/backup goals, import calendar, start/stop HUD, open Permissions when required access is missing | Goal/calendar/backup helpers, `OverlayServiceStateStore` |
 | App usage page | `APP_USAGE` drawer destination | `ui/usage/`, Compose | `AppUsageViewModel` | Secondary page opened from the drawer | Refresh, inspect top-five chart, scroll every app longest-first, open Permissions when usage access is missing | `UsageStatsManager`, `PackageManager`, `AppUsageRepository` |
+| Brick mode page | `BRICK_MODE` drawer destination | `ui/brick/`, Compose | `BrickModeViewModel` | Secondary page opened from the drawer | Search launchable apps; choose allowed apps; turn Brick Mode on/off; open Accessibility settings | `BrickModeSettings`, `PackageManager`, Android Accessibility Settings |
 | App limits page | `APP_LIMITS` drawer destination | `ui/blocking/`, Compose | `AppBlockingViewModel` | Secondary page opened from the drawer | Search installed apps by name or package; enable the app-limit accessibility service; set/remove daily limits; configure supported section rules and the Instagram open-chat exemption | Usage history, `AppBlockSettings`, Android Accessibility Settings |
 | Permissions page | `PERMISSIONS` drawer destination, anchored at the bottom | `MainActivity.kt`, Compose | None | Secondary page opened from the drawer or missing-access actions | Grant overlay, usage, and optional calendar access | Android Settings/AppOps and runtime permission controller |
 | Goal Backup panel | Section within setup/control screen | `ui/backup/GoalBackupPanel.kt`, `MainActivity.kt` | None | Appears immediately below goal settings | Export current editor text; open and validate a JSON backup | Activity Result APIs, `GoalBackupFormat`, `GoalBackupStorage`, current editor state |
@@ -257,9 +263,9 @@ There are no splash, onboarding, authentication, profile, conventional settings,
 ### Navigation model
 
 - Start destination: exported `MainActivity`, declared with `singleTop` launch mode (`AndroidManifest.xml:24-35`).
-- There is no authentication gate, nested navigation graph, bottom navigation, route parameter, or app link/deep link. A Material 3 drawer switches among four enum-backed Compose destinations without a navigation library.
+- There is no authentication gate, nested navigation graph, bottom navigation, route parameter, or app link/deep link. A Material 3 drawer switches among five enum-backed Compose destinations without a navigation library.
 - The notification `PendingIntent` uses `NEW_TASK | SINGLE_TOP | CLEAR_TOP`, bringing the existing activity to the front when possible (`OverlayService.kt:114-125`).
-- Back closes an open drawer first; from App usage, App limits, or Permissions it returns to Goals; from Goals the default activity behavior leaves/finishes the activity. The foreground service and overlay continue until explicitly stopped or destroyed.
+- Back closes an open drawer first; from App usage, Brick mode, App limits, or Permissions it returns to Goals; from Goals the default activity behavior leaves/finishes the activity. The foreground service and overlay continue until explicitly stopped or destroyed.
 - Starting/stopping does not navigate. Overlay windows are attached by the service independently of the activity.
 - Boot may start the service without opening an activity.
 - Logout does not exist.
@@ -269,6 +275,9 @@ There are no splash, onboarding, authentication, profile, conventional settings,
 App icon or notification
   -> MainActivity -> Goals (default)
        -> hamburger -> App usage -> local 3:00 AM usage chart and descending list
+       -> hamburger -> Brick mode
+            -> searchable launchable-app allow-list and protected essentials
+                 -> TimeHudAccessibilityService -> unchosen visible launcher app blocked
        -> hamburger -> App limits
             -> accessibility disclosure -> Android accessibility settings
             -> app rule -> daily minutes and optional supported-app section controls
@@ -310,6 +319,7 @@ Device boot or app replacement
 |---|---|---|---|
 | `TimeHUDScreen` composable | Permission flags; short/long editor strings; save/calendar/backup status; pending picker snapshots and validated import; collected service state | Permission taps, edits, calendar import, backup export/import/confirmation, start/stop, resume | Goal editor and pending backup state use `rememberSaveable`; file I/O uses a composition coroutine scope and returns to main state. A confirmed restore writes and updates both editor fields together, preventing pre-import editor text from being re-saved. The older service-side goal-removal divergence remains outside this flow. |
 | `AppUsageViewModel` | Loading, ready/empty, permission-required, and unavailable states plus sorted app entries | Page composition/resume and manual Refresh | Activity-scoped ViewModel cancels a previous refresh before starting a new `Dispatchers.IO` query. Results are not persisted. |
+| `BrickModeViewModel` | Loading state, enabled state, installed launchable-app list, protected essentials, and chosen apps | Page composition/resume, master switch, and per-app switches | Activity-scoped ViewModel loads the package catalog on `Dispatchers.IO`; enabled state and chosen package names persist in `BrickModeSettings`. Search is local UI state. |
 | `AppBlockingViewModel` | Loading, usage-permission-required, launchable app list, current daily usage, and configured rules | Page composition/resume and rule save/removal | Activity-scoped ViewModel loads package/usage state on `Dispatchers.IO`; rules persist separately in `AppBlockSettings`. The App limits composable keeps its local search query across ordinary recreation and filters the already-loaded list without another provider query. |
 | `TimeHudAccessibilityService` | Current focused configured package, focus interval, visible window classifications, blocking targets, and attached overlay pieces | Accessibility window/content events, scheduled daily-limit boundary checks, and the blocked-overlay Home action | System-owned optional service. Rules and accumulated daily usage persist; live nodes and overlays do not. Destruction/interruption flushes focus time and removes overlays. |
 | `OverlayServiceStateStore` | `StateFlow<OverlayServiceUiState>` with `isRunning` and derived `primaryAction` | `markRunning()`, `markStopped()` from service lifecycle | Process-local only. It is sufficient for the current same-process activity/service but is not an authoritative cross-process/persistent service monitor. |
@@ -332,6 +342,7 @@ All persistence is private `SharedPreferences`:
 | `timehud_goals` | `short_term_goals`, `long_term_goals` | `GoalSettings.kt` | Multiline goal strings. Normal Save/Start trims outer whitespace; confirmed backup replacement preserves validated strings exactly. Default hardcoded seed goals are used until values are saved. |
 | `timehud_goal_completion` | `completed_date`, `completed_keys` | `GoalCompletionStore.kt:16-56` | Local-date key and a string set such as `short:finish report`. |
 | `timehud_startup` | `hud_active` | `StartupPreferences.kt:5-25` | Whether the HUD should restart after boot/update. |
+| `timehud_brick_mode` | `enabled`, `allowed_packages` | `BrickModeSettings` | Off-by-default Brick Mode state and the user-chosen launchable package allow-list. Protected essentials are derived rather than persisted. |
 | `timehud_app_blocking` | Configured package set plus per-package limit/blocked-surface/Messages keys | `AppBlockSettings.kt` | Local app-limit rules. Legacy Instagram Reels/Stories booleans migrate when loaded; saving writes the generalized surface set. Removing a rule removes its configuration keys. |
 | `timehud_focused_app_usage` | 3:00 AM period start plus per-package seeded/usage keys | `FocusedAppUsageStore` | UsageStats-seeded daily totals plus focused accessibility-window time used for enforcement. Resets when the period start changes. |
 
@@ -608,6 +619,14 @@ The two API compatibility errors recorded in the 2026-07-11 runs were later fixe
 | `adb devices` | No attached devices | The search field, keyboard action, recreation behavior, and no-results card were not exercised on a device or emulator. |
 | `git diff --check` | Passed | No whitespace errors were introduced. |
 
+### Verification performed on 2026-09-03 for Brick Mode
+
+| Command/check | Result | Notes |
+|---|---|---|
+| `./gradlew --gradle-user-home .gradle-work testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` | Passed | All 63 JVM tests passed. Lint completed with zero errors and 41 pre-existing non-fatal warnings; the debug APK and Android-test APK compiled. |
+| `adb devices` | No attached devices | Real accessibility enforcement, installed-app discovery, protected vendor apps, search/switch UI, and the compiled drawer test were not run on a device or emulator. |
+| `git diff --check` | Passed | No whitespace errors were introduced. |
+
 ### Coverage gaps
 
 The most important untested behavior is also the most failure-prone: total screen-time aggregation and boundary cases; five-minute triggering; foreground-service lifecycle/restart; overlay add/remove behavior; permission grant/revoke; real-device/vendor `UsageStatsManager` event completeness and label visibility; real YouTube/Instagram/Facebook/Snapchat/X accessibility-tree signals; Samsung Pop-up View and split-screen layer/bounds behavior; accessibility-service revocation; notification behavior; boot receiver decision logic; real SharedPreferences date rollover; calendar-provider failures; active modal/accessibility behavior; state synchronization between the activity and service; and actual system-picker/`ContentResolver` backup UI flows. App-time aggregation, blocking decisions/geometry, and backup schema/text behavior are unit-tested, but platform providers and compiled device tests still need device coverage.
@@ -616,9 +635,10 @@ The most important untested behavior is also the most failure-prone: total scree
 
 ### Fully implemented in source
 
-- Single activity with a hamburger drawer, Goals default page, App usage and App limits secondary pages, Permissions bottom destination, and permission status refresh.
+- Single activity with a hamburger drawer, Goals default page, App usage, Brick mode, and App limits secondary pages, Permissions bottom destination, and permission status refresh.
 - Local per-app foreground-time graph and longest-first rows using the 3:00 AM boundary, explicit loading/empty/error states, and manual refresh.
 - Local daily app-limit rules for launchable apps, focused-window accounting, supported YouTube/Instagram/Facebook/Snapchat/X section recognition, Instagram open-chat exemption, and higher-window region subtraction for blocking shields.
+- Local Brick Mode with a searchable launchable-app allow-list, protected reference apps/Home/Settings, and fail-open handling for background-only packages.
 - Foreground overlay service, draggable bubble, active check-in, notification, explicit stop.
 - Local goal editing, defaults, persistence, daily completion, undo/removal, and celebration UI.
 - Manual goal-only JSON export and validated, confirmed replacement import through the system document picker.
@@ -675,15 +695,17 @@ The most important untested behavior is also the most failure-prone: total scree
 | `ui/backup/GoalBackupPanel.kt` | Backup controls, status messages, and confirmation dialog | Owns the user-facing backup surface | `MainActivity`, string resources |
 | `ui/navigation/TimeHudDrawerScaffold.kt` | Drawer and enum-backed page switching | Separates setup, usage, and permission concerns without a route dependency | `MainActivity`, Back handling |
 | `ui/usage/` | Per-app usage aggregation, platform query, ViewModel, and Compose presentation | Owns the new chart/list feature and keeps provider work off the main thread | `UsageStatsManager`, `PackageManager`, Lifecycle ViewModel |
-| `blocking/` | App-limit rules, persistence, focus tracking, supported-app classification, accessibility service, and overlay geometry | Owns local enforcement and multi-window-aware blocking | Accessibility APIs, UsageStats seed, SharedPreferences, WindowManager |
+| `blocking/` | Brick Mode and app-limit rules, persistence, focus tracking, supported-app classification, accessibility service, and overlay geometry | Owns local enforcement and multi-window-aware blocking | Accessibility APIs, PackageManager, UsageStats seed, SharedPreferences, WindowManager |
+| `ui/brick/` | Brick Mode switch, protected-app display, searchable allow-list, and Accessibility settings entry | Owns user configuration for whole-app allow-list enforcement | `BrickModeSettings`, `PackageManager`, Android Accessibility Settings |
 | `ui/blocking/` | App-limit list, accessibility disclosure/status, and rule dialog | Owns user configuration for daily and supported section rules | `AppBlockSettings`, `AppUsageRepository`, Android Accessibility Settings |
 | `ExampleUnitTest.kt` | Twelve existing pure behavior tests | Covers calendar, goals, completion keys, bubble positioning, triggers, and service UI state | Calendar, goals, completion keys, overlay helpers, service UI state |
 | `GoalBackupTest.kt` | Fourteen backup codec/text tests | Protects schema compatibility, special characters, exclusion, and error atomicity | `GoalBackup`, `CalendarGoalSection`, test-only `org.json` runtime |
 | `AppUsageCalculatorTest.kt` | Six per-app usage tests | Protects interval aggregation, reset boundary, duplicate handling, and display formatting | `AppUsageCalculator`, duration helpers |
 | `AppBlockingTest.kt` | Twelve pure app-blocking tests | Protects decision priority, all supported option/classifier mappings, limits, and pop-up region subtraction | `AppBlockDecisionEngine`, `AppSurfaceClassifier`, `VisibleRegionCalculator` |
 | `AppBlockingScreenTest.kt` | Four pure App limits search tests | Protects blank-query ordering, app-name/package matching, and no-result filtering | `BlockableAppUi`, `filterBlockableApps` |
+| `BrickModeTest.kt` / `BrickModeScreenTest.kt` | Brick Mode policy and search tests | Protects essential/chosen/background decisions, screenshot-name coverage, and name/package filtering | `BrickModeDecisionEngine`, `EssentialAppPolicy`, `filterBrickModeApps` |
 | `ExampleInstrumentedTest.kt` | Package/manifest/bubble device tests | Basic Android component and overlay metadata coverage | Built manifest, Android package manager, overlay XML |
-| `MainNavigationTest.kt` | Drawer Compose UI test | Checks that App usage, App limits, and Permissions are reachable | `MainActivity`, Compose test runtime |
+| `MainNavigationTest.kt` | Drawer Compose UI test | Checks that App usage, Brick mode, App limits, and Permissions are reachable | `MainActivity`, Compose test runtime |
 
 Future work on screen-time behavior should read `OverlayService.kt`, `AndroidManifest.xml`, `MainActivity.kt`, and the overlay layouts together. Goal/calendar changes should also read all three preference/helper files because normalized strings are shared identifiers.
 

@@ -56,6 +56,7 @@ internal fun supportedSurfacesFor(packageName: String): List<AppSurface> = when 
 }
 
 internal enum class BlockReason {
+    BRICK_MODE,
     DAILY_LIMIT,
     MESSAGE_INBOX,
     SHORTS,

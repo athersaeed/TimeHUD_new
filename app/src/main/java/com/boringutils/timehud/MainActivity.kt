@@ -62,6 +62,7 @@ import com.boringutils.timehud.ui.backup.GoalBackupPanel
 import com.boringutils.timehud.ui.backup.GoalImportConfirmationDialog
 import com.boringutils.timehud.blocking.AccessibilityServiceStatus
 import com.boringutils.timehud.ui.blocking.AppBlockingScreen
+import com.boringutils.timehud.ui.brick.BrickModeScreen
 import com.boringutils.timehud.ui.navigation.TimeHudDestination
 import com.boringutils.timehud.ui.navigation.TimeHudDrawerScaffold
 import com.boringutils.timehud.ui.theme.TimeHUDTheme
@@ -398,6 +399,10 @@ fun TimeHUDScreen(
                 onOpenPermissions = {
                     selectedDestinationName = TimeHudDestination.PERMISSIONS.name
                 }
+            )
+
+            TimeHudDestination.BRICK_MODE -> BrickModeScreen(
+                accessibilityServiceEnabled = accessibilityGranted
             )
 
             TimeHudDestination.PERMISSIONS -> PermissionsPage(
