@@ -271,3 +271,19 @@ internal object VisibleRegionCalculator {
             visibleRects.flatMap { it.subtract(occluder) }
         }
 }
+
+internal object BlockingOccluderPolicy {
+    fun shouldPreserve(
+        targetBounds: ScreenRect,
+        occluderBounds: ScreenRect,
+    ): Boolean {
+        if (targetBounds.width <= 0 || targetBounds.height <= 0) return true
+
+        val isCompactFloatingBubble =
+            occluderBounds.width * 3 <= targetBounds.width &&
+                occluderBounds.height * 5 <= targetBounds.height &&
+                occluderBounds.area <= targetBounds.area / 20L
+
+        return !isCompactFloatingBubble
+    }
+}

@@ -28,3 +28,12 @@ object OverlayServiceStateStore {
         _uiState.value = OverlayServiceUiState()
     }
 }
+
+internal object BlockingOverlayStateStore {
+    private val _isVisible = MutableStateFlow(false)
+    val isVisible: StateFlow<Boolean> = _isVisible.asStateFlow()
+
+    fun setVisible(visible: Boolean) {
+        _isVisible.value = visible
+    }
+}

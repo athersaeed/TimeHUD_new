@@ -20,6 +20,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.FrameLayout
 import com.boringutils.timehud.ActiveOverlayContentController
 import com.boringutils.timehud.ActiveOverlayTrigger
+import com.boringutils.timehud.BlockingOverlayStateStore
 import com.boringutils.timehud.R
 import com.boringutils.timehud.ScreenTimeDisplay
 import com.boringutils.timehud.ui.usage.AppUsageLoadResult
@@ -444,6 +445,12 @@ private class BlockingOverlayController(
         val pieces = targets.flatMap { target ->
             val occluders = windows.asSequence()
                 .filter { it.layer > target.layer }
+                .filter { window ->
+                    BlockingOccluderPolicy.shouldPreserve(
+                        targetBounds = target.bounds,
+                        occluderBounds = window.bounds,
+                    )
+                }
                 .map { it.bounds }
                 .toList()
             val visibleRects = VisibleRegionCalculator.calculate(target.bounds, occluders)
@@ -456,15 +463,22 @@ private class BlockingOverlayController(
         }
         if (signature == lastSignature) return
 
-        clear()
+        clearAttachedViews()
         lastSignature = signature
         val allPiecesAttached = pieces.map(::attachPiece).all { it }
         if (!allPiecesAttached) {
+            clearAttachedViews()
             lastSignature = null
         }
+        BlockingOverlayStateStore.setVisible(pieces.isNotEmpty() && allPiecesAttached)
     }
 
     fun clear() {
+        clearAttachedViews()
+        BlockingOverlayStateStore.setVisible(false)
+    }
+
+    private fun clearAttachedViews() {
         contentControllers.forEach(ActiveOverlayContentController::dispose)
         contentControllers.clear()
         attachedViews.forEach { view ->

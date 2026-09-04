@@ -1,6 +1,7 @@
 package com.boringutils.timehud.blocking
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -189,6 +190,32 @@ class AppBlockingTest {
         )
 
         assertTrue(visible.isEmpty())
+    }
+
+    @Test
+    fun blocking_overlays_do_not_leave_a_hole_for_a_compact_floating_bubble() {
+        val target = ScreenRect(0, 0, 1_000, 2_000)
+        val bubble = ScreenRect(820, 120, 940, 240)
+
+        assertFalse(
+            BlockingOccluderPolicy.shouldPreserve(
+                targetBounds = target,
+                occluderBounds = bubble,
+            )
+        )
+    }
+
+    @Test
+    fun blocking_overlays_still_preserve_full_width_system_ui() {
+        val target = ScreenRect(0, 0, 1_000, 2_000)
+        val statusBar = ScreenRect(0, 0, 1_000, 80)
+
+        assertTrue(
+            BlockingOccluderPolicy.shouldPreserve(
+                targetBounds = target,
+                occluderBounds = statusBar,
+            )
+        )
     }
 
     private fun rule(

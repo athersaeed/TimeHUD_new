@@ -20,6 +20,12 @@ import android.view.WindowManager
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 internal enum class ActiveOverlayTrigger(
     val requiresCloseDelay: Boolean,
@@ -48,11 +54,13 @@ class OverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var handler: Handler
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var passiveView: View? = null
     private var activeView: View? = null
     private var activeContentController: ActiveOverlayContentController? = null
     private var isActiveState = false
+    private var isBlockingOverlayVisible = false
     private var lastTriggeredBucket: Long = -1L
 
     override fun onCreate() {
@@ -64,6 +72,9 @@ class OverlayService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification())
         OverlayServiceStateStore.markRunning()
 
+        serviceScope.launch {
+            BlockingOverlayStateStore.isVisible.collect(::handleBlockingOverlayVisibility)
+        }
         showPassiveOverlay()
         handler.post(tickRunnable)
     }
@@ -80,6 +91,7 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        serviceScope.cancel()
         handler.removeCallbacksAndMessages(null)
         activeContentController?.dispose()
         activeContentController = null
@@ -150,7 +162,7 @@ class OverlayService : Service() {
     }
 
     private fun showPassiveOverlay() {
-        if (passiveView != null) return
+        if (passiveView != null || isBlockingOverlayVisible) return
         val inflater = LayoutInflater.from(this)
         val view = inflater.inflate(R.layout.overlay_passive, null)
         val params = makeBubbleLayoutParams()
@@ -313,6 +325,17 @@ class OverlayService : Service() {
         isActiveState = false
         showPassiveOverlay()
         updatePassiveText(getFormattedScreenTime())
+    }
+
+    private fun handleBlockingOverlayVisibility(visible: Boolean) {
+        isBlockingOverlayVisible = visible
+        if (visible) {
+            removeOverlay(passiveView)
+            passiveView = null
+        } else if (!isActiveState) {
+            showPassiveOverlay()
+            updatePassiveText(getFormattedScreenTime())
+        }
     }
 
     private fun removeOverlay(view: View?) {
