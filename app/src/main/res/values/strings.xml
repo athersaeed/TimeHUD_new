@@ -8,6 +8,7 @@
     <string name="overlay_bubble_content_description">TimeHUD, %1$s screen time. Tap to open the check-in. Drag to move.</string>
     <string name="active_close">Close</string>
     <string name="active_close_delayed">Close in 5s</string>
+    <string name="open_brick_mode">Brick Mode</string>
     <string name="active_short_term_goals">Short term goals</string>
     <string name="active_long_term_goals">Long term goals</string>
     <string name="active_no_goals">- No goals saved yet</string>

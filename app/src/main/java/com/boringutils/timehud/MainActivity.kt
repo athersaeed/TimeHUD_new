@@ -38,8 +38,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,8 +74,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    private var requestedDestination by mutableStateOf<TimeHudDestination?>(null)
+    private var destinationRequestId by mutableLongStateOf(0L)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        consumeDestinationRequest(intent)
 
         enableEdgeToEdge()
         setContent {
@@ -88,12 +94,45 @@ class MainActivity : ComponentActivity() {
                         },
                         onStopService = {
                             stopOverlayService(this)
-                        }
+                        },
+                        requestedDestination = requestedDestination,
+                        destinationRequestId = destinationRequestId
                     )
                 }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeDestinationRequest(intent)
+    }
+
+    private fun consumeDestinationRequest(intent: Intent) {
+        val destination = parseTimeHudDestination(
+            intent.getStringExtra(EXTRA_TIMEHUD_DESTINATION)
+        ) ?: return
+        intent.removeExtra(EXTRA_TIMEHUD_DESTINATION)
+        requestedDestination = destination
+        destinationRequestId += 1L
+    }
+}
+
+internal const val EXTRA_TIMEHUD_DESTINATION = "com.boringutils.timehud.extra.DESTINATION"
+
+internal fun parseTimeHudDestination(value: String?): TimeHudDestination? = value?.let { name ->
+    runCatching { TimeHudDestination.valueOf(name) }.getOrNull()
+}
+
+internal fun createTimeHudDestinationIntent(
+    context: Context,
+    destination: TimeHudDestination
+): Intent = Intent(context, MainActivity::class.java).apply {
+    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+        Intent.FLAG_ACTIVITY_CLEAR_TOP
+    putExtra(EXTRA_TIMEHUD_DESTINATION, destination.name)
 }
 
 private fun hasOverlayPermission(context: Context): Boolean =
@@ -150,7 +189,9 @@ private fun stopOverlayService(context: Context) {
 @Composable
 fun TimeHUDScreen(
     onStartService: () -> Unit,
-    onStopService: () -> Unit
+    onStopService: () -> Unit,
+    requestedDestination: TimeHudDestination? = null,
+    destinationRequestId: Long = 0L
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -163,11 +204,17 @@ fun TimeHUDScreen(
     }
     var calendarGranted by remember { mutableStateOf(CalendarAgenda.hasReadCalendarPermission(context)) }
     var selectedDestinationName by rememberSaveable {
-        mutableStateOf(TimeHudDestination.GOALS.name)
+        mutableStateOf((requestedDestination ?: TimeHudDestination.GOALS).name)
     }
     val selectedDestination = runCatching {
         TimeHudDestination.valueOf(selectedDestinationName)
     }.getOrDefault(TimeHudDestination.GOALS)
+
+    LaunchedEffect(requestedDestination, destinationRequestId) {
+        requestedDestination?.let { destination ->
+            selectedDestinationName = destination.name
+        }
+    }
 
     val initialGoalConfig = remember { GoalSettings.load(context) }
     var shortTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.shortTermGoals) }

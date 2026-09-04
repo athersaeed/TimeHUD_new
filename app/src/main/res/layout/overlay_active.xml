@@ -13,18 +13,36 @@
         android:paddingRight="24dp"
         android:paddingBottom="28dp">
 
-        <Button
-            android:id="@+id/btn_close_active"
-            android:layout_width="wrap_content"
-            android:layout_height="44dp"
-            android:layout_gravity="end"
-            android:backgroundTint="#44444F"
-            android:enabled="false"
-            android:minWidth="112dp"
-            android:text="Close in 5s"
-            android:textAllCaps="false"
-            android:textColor="#FFAAAAAA"
-            android:textSize="13sp" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btn_open_brick_mode"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginEnd="10dp"
+                android:backgroundTint="#26345F"
+                android:minWidth="112dp"
+                android:text="@string/open_brick_mode"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFFFF"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btn_close_active"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:backgroundTint="#44444F"
+                android:enabled="false"
+                android:minWidth="112dp"
+                android:text="Close in 5s"
+                android:textAllCaps="false"
+                android:textColor="#FFAAAAAA"
+                android:textSize="13sp" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tv_time"

@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.boringutils.timehud.ui.navigation.TimeHudDestination
 
 class ExampleUnitTest {
     @Test
@@ -34,6 +35,16 @@ class ExampleUnitTest {
     fun blocked_app_check_in_waits_then_returns_home() {
         assertTrue(ActiveOverlayTrigger.APP_BLOCK.requiresCloseDelay)
         assertTrue(ActiveOverlayTrigger.APP_BLOCK.returnsHomeOnClose)
+    }
+
+    @Test
+    fun overlay_destination_request_accepts_brick_mode_and_rejects_unknown_values() {
+        assertEquals(
+            TimeHudDestination.BRICK_MODE,
+            parseTimeHudDestination(TimeHudDestination.BRICK_MODE.name)
+        )
+        assertEquals(null, parseTimeHudDestination("NOT_A_DESTINATION"))
+        assertEquals(null, parseTimeHudDestination(null))
     }
 
     @Test

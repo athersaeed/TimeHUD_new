@@ -23,6 +23,8 @@ import com.boringutils.timehud.ActiveOverlayTrigger
 import com.boringutils.timehud.BlockingOverlayStateStore
 import com.boringutils.timehud.R
 import com.boringutils.timehud.ScreenTimeDisplay
+import com.boringutils.timehud.createTimeHudDestinationIntent
+import com.boringutils.timehud.ui.navigation.TimeHudDestination
 import com.boringutils.timehud.ui.usage.AppUsageLoadResult
 import com.boringutils.timehud.ui.usage.AppUsageRepository
 import com.boringutils.timehud.ui.usage.currentUsagePeriodStart
@@ -55,7 +57,8 @@ class TimeHudAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         overlayController = BlockingOverlayController(
             service = this,
-            onClose = ::returnHome
+            onClose = ::returnHome,
+            onOpenBrickMode = ::openBrickMode
         )
         refreshBrickModeCatalog(force = true)
         scheduleEvaluation(delayMs = 0L)
@@ -319,6 +322,13 @@ class TimeHudAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun openBrickMode() {
+        overlayController.clear()
+        updateFocusedPackage(null)
+        startActivity(createTimeHudDestinationIntent(this, TimeHudDestination.BRICK_MODE))
+        scheduleEvaluation(delayMs = HOME_NAVIGATION_DELAY_MS)
+    }
+
     private fun findFocusedPackage(windows: List<AccessibilityWindowInfo>): String? {
         val applicationWindows = windows.asSequence()
             .mapNotNull { window ->
@@ -447,7 +457,8 @@ private object AppWindowInspector {
 
 private class BlockingOverlayController(
     private val service: AccessibilityService,
-    private val onClose: () -> Unit
+    private val onClose: () -> Unit,
+    private val onOpenBrickMode: () -> Unit
 ) {
     private val windowManager = service.getSystemService(WindowManager::class.java)
     private val attachedViews = mutableListOf<View>()
@@ -534,7 +545,8 @@ private class BlockingOverlayController(
                     rootView = this,
                     timeText = ScreenTimeDisplay.current(service),
                     requiresCloseDelay = ActiveOverlayTrigger.APP_BLOCK.requiresCloseDelay,
-                    onClose = onClose
+                    onClose = onClose,
+                    onOpenBrickMode = onOpenBrickMode
                 )
             }
         }

@@ -20,6 +20,7 @@ import android.view.WindowManager
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
+import com.boringutils.timehud.ui.navigation.TimeHudDestination
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -295,7 +296,8 @@ class OverlayService : Service() {
                 rootView = view,
                 timeText = timeText,
                 requiresCloseDelay = trigger.requiresCloseDelay,
-                onClose = ::dismissActiveOverlay
+                onClose = ::dismissActiveOverlay,
+                onOpenBrickMode = ::openBrickMode
             )
         }
 
@@ -325,6 +327,11 @@ class OverlayService : Service() {
         isActiveState = false
         showPassiveOverlay()
         updatePassiveText(getFormattedScreenTime())
+    }
+
+    private fun openBrickMode() {
+        dismissActiveOverlay()
+        startActivity(createTimeHudDestinationIntent(this, TimeHudDestination.BRICK_MODE))
     }
 
     private fun handleBlockingOverlayVisibility(visible: Boolean) {

@@ -16,7 +16,7 @@ Core flow:
 4. Starting the HUD launches `OverlayService` as a foreground service.
 5. A draggable bubble shows total interactive screen time and opens the goal check-in when tapped.
 6. At newly observed five-minute usage buckets, it is replaced by the same full-screen goal check-in.
-7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, or close it. Bubble-opened check-ins close immediately; automatic five-minute check-ins enforce a five-second delay.
+7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, close it, or open Brick Mode directly. Bubble-opened check-ins close immediately; automatic five-minute check-ins enforce a five-second delay, while the Brick Mode shortcut remains immediately available.
 8. The service can restart after boot or package replacement when saved active state and required permissions allow it.
 9. Independently of the HUD service, an optional accessibility service enforces Brick Mode plus configured per-app daily limits and supported in-app section rules for YouTube, Instagram, Facebook, Snapchat, and X. Brick Mode blocks unchosen launchable app windows while always allowing protected essential apps; it never stops background services. The service preserves higher-layer multi-window/pop-up regions, keeps Instagram Messages exempt from section rules, and presents the shared goal check-in over blocked content. After the five-second pause, Close returns to Android Home.
 
@@ -221,6 +221,7 @@ Preserve these unless the request explicitly changes them.
 - System destruction is not an explicit user stop.
 - Only one passive or active overlay should be attached at a time.
 - Overlay cleanup must be safe during stop, recreation, and failure.
+- Every full check-in opened from the bubble, five-minute trigger, or app-control blocker must provide an immediate shortcut to the Brick Mode destination.
 - Notification tap should return to the single activity without unnecessary duplicate instances.
 - Boot/package replacement restart stays gated by saved active state and required permissions.
 

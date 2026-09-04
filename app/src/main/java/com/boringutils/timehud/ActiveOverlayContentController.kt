@@ -23,7 +23,8 @@ internal class ActiveOverlayContentController(
     private val rootView: View,
     timeText: String,
     requiresCloseDelay: Boolean,
-    private val onClose: () -> Unit
+    private val onClose: () -> Unit,
+    private val onOpenBrickMode: () -> Unit
 ) {
     private var activeGoalConfig = GoalSettings.load(context)
     private var activeGoalMode = GoalMode.SHORT_TERM
@@ -47,6 +48,8 @@ internal class ActiveOverlayContentController(
             configureCloseButton(this, enabled = !requiresCloseDelay)
             setOnClickListener { onClose() }
         }
+        rootView.findViewById<Button>(R.id.btn_open_brick_mode)
+            ?.setOnClickListener { onOpenBrickMode() }
         if (requiresCloseDelay) {
             handler.postDelayed(enableCloseRunnable, ACTIVE_CLOSE_DELAY_MS)
         }

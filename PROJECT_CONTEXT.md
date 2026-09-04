@@ -24,7 +24,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 5. Save goals or press **Start HUD**, which saves the current fields and starts `OverlayService` as a foreground service (`MainActivity.kt`).
 6. A circular timer bubble appears over other apps and updates every 10 seconds. It can be dragged anywhere within the screen; the last position is restored when the bubble returns (`OverlayService.kt`, `BubblePositioning.kt`, `overlay_passive.xml`).
 7. Once per newly observed five-minute total-screen-time bucket, a touchable full-screen overlay appears. It shows the time, up to five live calendar events, and up to eight short- or long-term goal lines (`OverlayService.kt:161-212`, `OverlayService.kt:236-260`, `OverlayService.kt:491-509`, `OverlayService.kt:528-532`). Because `lastTriggeredBucket` begins at `-1`, starting/restarting the service after at least five minutes of accumulated screen time can trigger this overlay immediately.
-8. Tapping the bubble opens the same full-screen check-in on demand and enables its close button immediately. Automatically triggered five-minute check-ins keep the five-second close delay. In the check-in, the user can switch between short- and long-term goals, tap a goal, mark it done for today, remove it, or cancel. Completion shows a brief animation (`OverlayService.kt`, `overlay_active.xml`).
+8. Tapping the bubble opens the same full-screen check-in on demand and enables its close button immediately. Automatically triggered five-minute check-ins keep the five-second close delay. Every shared check-in—including app-control blockers—offers an immediately available **Brick Mode** shortcut that dismisses the overlay and opens the Brick Mode destination without duplicating the activity. In the check-in, the user can switch between short- and long-term goals, tap a goal, mark it done for today, remove it, or cancel. Completion shows a brief animation (`OverlayService.kt`, `ActiveOverlayContentController.kt`, `overlay_active.xml`).
 9. The persistent notification opens `MainActivity`. **Stop HUD** stops the service and clears the restart preference (`OverlayService.kt:100-125`, `MainActivity.kt:130-132`).
 10. If the HUD was marked active, boot or package replacement attempts to restart it when overlay and usage permissions are still present (`BootReceiver.kt:17-35`).
 11. Open **App usage** to refresh a top-five horizontal bar chart and a full longest-first list of per-app foreground time since the same 3:00 AM boundary. This history is read locally through `UsageStatsManager` and is not persisted or uploaded (`ui/usage/`).
@@ -38,6 +38,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 - Foreground service and ongoing notification.
 - Screen-interactive-time calculation with a 3:00 AM boundary.
 - Five-minute-bucket full-screen check-ins.
+- Direct Brick Mode shortcut from bubble-opened, automatic five-minute, and app-control check-ins.
 - Editable short-term and long-term goal lists.
 - Hamburger navigation with Goals as the default page, App usage, Brick mode, and App limits as secondary pages, and Permissions anchored at the bottom of the drawer.
 - Per-app foreground-time chart and descending list using the 3:00 AM daily boundary.
