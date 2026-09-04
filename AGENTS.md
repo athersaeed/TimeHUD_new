@@ -10,15 +10,15 @@ TimeHUD is a native, local-only Android focus/accountability app.
 
 Core flow:
 
-1. The user opens the single Compose control activity in `MainActivity` and switches among Goals, App usage, Brick mode, App limits, and Permissions.
+1. The user opens the single Compose control activity in `MainActivity` and switches among Goals, App usage, Usage restrictions, App limits, and Permissions.
 2. The user grants overlay access and usage access.
 3. The user can edit short-term and long-term goals and optionally grant calendar read access.
 4. Starting the HUD launches `OverlayService` as a foreground service.
 5. A draggable bubble shows total interactive screen time and opens the goal check-in when tapped.
 6. At newly observed five-minute usage buckets, it is replaced by the same full-screen goal check-in.
-7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, close it, or open Brick Mode directly. Bubble-opened check-ins close immediately; automatic five-minute check-ins enforce a five-second delay, while the Brick Mode shortcut remains immediately available.
+7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, close it, or open Usage restrictions directly. Bubble-opened check-ins close immediately; automatic five-minute check-ins enforce a five-second delay, while the Usage restrictions shortcut remains immediately available.
 8. The service can restart after boot or package replacement when saved active state and required permissions allow it.
-9. Independently of the HUD service, an optional accessibility service enforces Brick Mode plus configured per-app daily limits and supported in-app section rules for YouTube, Instagram, Facebook, Snapchat, and X. Brick Mode blocks unchosen launchable app windows while always allowing protected essential apps; it never stops background services. The service preserves higher-layer multi-window/pop-up regions, keeps Instagram Messages exempt from section rules, and presents the shared goal check-in over blocked content. After the five-second pause, Close returns to Android Home.
+9. Independently of the HUD service, an optional accessibility service enforces Restricted Mode or Brick Mode plus configured per-app daily limits and supported in-app section rules for YouTube, Instagram, Facebook, Snapchat, and X. Restricted Mode uses an unrestricted-size allow-list; Brick Mode uses a separate allow-list capped at eight user-chosen apps and locks that list while active. Both modes block unchosen launchable app windows while always allowing protected essential apps; they never stop background services. The service preserves higher-layer multi-window/pop-up regions, keeps Instagram Messages exempt from section rules, and presents the shared goal check-in over blocked content. After the five-second pause, Close returns to Android Home.
 
 Important timing behavior:
 
@@ -221,7 +221,7 @@ Preserve these unless the request explicitly changes them.
 - System destruction is not an explicit user stop.
 - Only one passive or active overlay should be attached at a time.
 - Overlay cleanup must be safe during stop, recreation, and failure.
-- Every full check-in opened from the bubble, five-minute trigger, or app-control blocker must provide an immediate shortcut to the Brick Mode destination.
+- Every full check-in opened from the bubble, five-minute trigger, or app-control blocker must provide an immediate shortcut to the Usage restrictions destination.
 - Notification tap should return to the single activity without unnecessary duplicate instances.
 - Boot/package replacement restart stays gated by saved active state and required permissions.
 
@@ -270,15 +270,17 @@ Preserve these unless the request explicitly changes them.
 - Blocking overlays cover only the target window's exposed regions; higher-layer pop-up/system windows must remain visible and interactive.
 - Disabling or revoking the accessibility service must remove service-owned blocking overlays.
 
-### Brick Mode behavior
+### Usage restriction behavior
 
-- Brick Mode is off by default and persists its enabled state and chosen package allow-list locally.
-- Brick Mode can run until manually disabled or use a persisted one-minute-to-seven-day timer. A timed session must stop enforcement automatically at its wall-clock deadline, including after the activity is closed or the process is recreated.
-- Brick Mode supports multiple locally persisted weekly schedules. Each schedule has enabled state, one or more weekdays, a local start time, and a duration of up to 24 hours; scheduled sessions reuse the global Brick Mode allow-list and may cross midnight.
+- Usage restrictions are off by default. Restricted Mode preserves the original Brick Mode behavior and allow-list. Brick Mode uses a separate allow-list capped at eight user-chosen apps; protected essential apps do not count toward the cap.
+- The selected restriction mode can run until manually disabled or use a persisted one-minute-to-seven-day timer. A timed session must stop enforcement automatically at its wall-clock deadline, including after the activity is closed or the process is recreated.
+- Multiple locally persisted weekly schedules can each select Restricted Mode or Brick Mode, one or more weekdays, a local start time, and a duration of up to 24 hours. Schedules reuse the allow-list for their selected mode and may cross midnight. If both modes are active, Brick Mode wins.
+- Existing pre-mode settings and schedules must load as Restricted Mode so an update never silently makes an existing session stricter.
+- Brick Mode's chosen-app list cannot change while any manual, timed, or scheduled Brick Mode session is active.
 - Enforcement applies only to visible packages that Android reports as launchable. Background-only services and non-launchable system processes must fail open and remain unaffected.
 - TimeHUD, detected Home launchers, Android Settings, and installed apps matching the protected reference list remain available even if the user does not choose them.
-- A chosen app remains subject to any separately configured App limits rule; Brick Mode does not erase or bypass those rules.
-- Closing a Brick Mode check-in returns Home, which must remain reachable.
+- A chosen app remains subject to any separately configured App limits rule; usage restrictions do not erase or bypass those rules.
+- Closing a usage-restriction check-in returns Home, which must remain reachable.
 
 ## Known Baseline Risks to Verify
 

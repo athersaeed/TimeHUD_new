@@ -118,7 +118,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         val rules = AppBlockSettings.loadRules(this).associateBy { it.packageName }
         val brickModeConfig = BrickModeSettings.load(this, nowWallMs)
         val brickModeSchedules = BrickModeSettings.loadSchedules(this)
-        val scheduledBrickModeActive = BrickModeSchedulePolicy.isAnyActive(
+        val scheduledRestrictionMode = BrickModeSchedulePolicy.activeMode(
             brickModeSchedules,
             nowWallMs
         )
@@ -146,7 +146,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 config = brickModeConfig,
                 packageName = packageName,
                 catalog = currentBrickModeCatalog,
-                scheduledActive = scheduledBrickModeActive,
+                scheduledMode = scheduledRestrictionMode,
                 nowMs = nowWallMs
             )
             if (brickModeDecision == BlockDecision.Allow && rule == null) {

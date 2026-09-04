@@ -68,7 +68,7 @@ class BrickModeTest {
                 config = BrickModeConfig(enabled = false),
                 packageName = "com.example.social",
                 catalog = catalog,
-                scheduledActive = BrickModeSchedulePolicy.isAnyActive(
+                scheduledMode = BrickModeSchedulePolicy.activeMode(
                     listOf(schedule),
                     utcMillis(2026, Calendar.SEPTEMBER, 7, 10, 0),
                     utc
@@ -150,6 +150,7 @@ class BrickModeTest {
         val schedules = listOf(
             schedule(
                 id = "weekday-focus",
+                mode = UsageRestrictionMode.BRICK,
                 daysOfWeek = setOf(Calendar.MONDAY, Calendar.WEDNESDAY, Calendar.FRIDAY),
                 startMinuteOfDay = 13 * 60 + 15,
                 durationMinutes = 90
@@ -158,6 +159,40 @@ class BrickModeTest {
 
         assertEquals(schedules, BrickModeScheduleCodec.decode(BrickModeScheduleCodec.encode(schedules)))
         assertEquals(emptyList<BrickModeSchedule>(), BrickModeScheduleCodec.decode("broken|data"))
+    }
+
+    @Test
+    fun legacy_schedule_codec_entries_migrate_to_restricted_mode() {
+        val decoded = BrickModeScheduleCodec.decode("legacy|true|2,4,6|795|90")
+
+        assertEquals(1, decoded.size)
+        assertEquals(UsageRestrictionMode.RESTRICTED, decoded.single().mode)
+    }
+
+    @Test
+    fun brick_mode_is_stronger_when_restricted_and_brick_schedules_overlap() {
+        val nowMs = utcMillis(2026, Calendar.SEPTEMBER, 7, 10, 0)
+        val schedules = listOf(
+            schedule(
+                id = "restricted",
+                mode = UsageRestrictionMode.RESTRICTED,
+                daysOfWeek = setOf(Calendar.MONDAY),
+                startMinuteOfDay = 9 * 60,
+                durationMinutes = 120
+            ),
+            schedule(
+                id = "brick",
+                mode = UsageRestrictionMode.BRICK,
+                daysOfWeek = setOf(Calendar.MONDAY),
+                startMinuteOfDay = 9 * 60,
+                durationMinutes = 120
+            )
+        )
+
+        assertEquals(
+            UsageRestrictionMode.BRICK,
+            BrickModeSchedulePolicy.activeMode(schedules, nowMs, utc)
+        )
     }
 
     @Test
@@ -174,14 +209,14 @@ class BrickModeTest {
     fun expired_timer_resolves_to_disabled_without_changing_allowed_apps() {
         val config = BrickModeConfig(
             enabled = true,
-            allowedPackages = setOf("com.example.maps"),
+            restrictedAllowedPackages = setOf("com.example.maps"),
             endsAtEpochMs = 120_000L
         )
 
         assertEquals(
             BrickModeConfig(
                 enabled = false,
-                allowedPackages = setOf("com.example.maps"),
+                restrictedAllowedPackages = setOf("com.example.maps"),
                 endsAtEpochMs = null
             ),
             BrickModeTimer.resolveExpired(config, nowMs = 120_000L)
@@ -219,7 +254,7 @@ class BrickModeTest {
             BrickModeDecisionEngine.decide(
                 BrickModeConfig(
                     enabled = true,
-                    allowedPackages = setOf("com.example.maps")
+                    restrictedAllowedPackages = setOf("com.example.maps")
                 ),
                 "com.example.maps",
                 catalog
@@ -235,6 +270,80 @@ class BrickModeTest {
                 BrickModeConfig(enabled = true),
                 "com.example.social",
                 catalog
+            )
+        )
+    }
+
+    @Test
+    fun brick_mode_uses_its_separate_allow_list() {
+        val config = BrickModeConfig(
+            enabled = true,
+            mode = UsageRestrictionMode.BRICK,
+            restrictedAllowedPackages = setOf("com.example.social"),
+            brickAllowedPackages = setOf("com.example.maps")
+        )
+
+        assertEquals(
+            BlockDecision.Allow,
+            BrickModeDecisionEngine.decide(config, "com.example.maps", catalog)
+        )
+        assertEquals(
+            BlockDecision.Block(BlockReason.BRICK_MODE),
+            BrickModeDecisionEngine.decide(config, "com.example.social", catalog)
+        )
+    }
+
+    @Test
+    fun brick_mode_allows_at_most_eight_chosen_apps() {
+        assertTrue(
+            UsageRestrictionPolicy.canAddPackage(
+                UsageRestrictionMode.BRICK,
+                UsageRestrictionPolicy.MAX_BRICK_ALLOWED_APPS - 1
+            )
+        )
+        assertTrue(
+            !UsageRestrictionPolicy.canAddPackage(
+                UsageRestrictionMode.BRICK,
+                UsageRestrictionPolicy.MAX_BRICK_ALLOWED_APPS
+            )
+        )
+        assertTrue(
+            UsageRestrictionPolicy.canAddPackage(
+                UsageRestrictionMode.RESTRICTED,
+                UsageRestrictionPolicy.MAX_BRICK_ALLOWED_APPS
+            )
+        )
+    }
+
+    @Test
+    fun brick_mode_app_list_locks_during_manual_or_scheduled_brick_sessions() {
+        val nowMs = utcMillis(2026, Calendar.SEPTEMBER, 7, 10, 0)
+        val scheduledBrickMode = schedule(
+            mode = UsageRestrictionMode.BRICK,
+            daysOfWeek = setOf(Calendar.MONDAY),
+            startMinuteOfDay = 9 * 60,
+            durationMinutes = 120
+        )
+
+        assertTrue(
+            UsageRestrictionPolicy.isModeActive(
+                config = BrickModeConfig(
+                    enabled = true,
+                    mode = UsageRestrictionMode.BRICK
+                ),
+                schedules = emptyList(),
+                mode = UsageRestrictionMode.BRICK,
+                nowMs = nowMs,
+                timeZone = utc
+            )
+        )
+        assertTrue(
+            UsageRestrictionPolicy.isModeActive(
+                config = BrickModeConfig(enabled = false),
+                schedules = listOf(scheduledBrickMode),
+                mode = UsageRestrictionMode.BRICK,
+                nowMs = nowMs,
+                timeZone = utc
             )
         )
     }
@@ -312,11 +421,13 @@ class BrickModeTest {
 
     private fun schedule(
         id: String = "schedule-id",
+        mode: UsageRestrictionMode = UsageRestrictionMode.RESTRICTED,
         daysOfWeek: Set<Int>,
         startMinuteOfDay: Int,
         durationMinutes: Int
     ) = BrickModeSchedule(
         id = id,
+        mode = mode,
         daysOfWeek = daysOfWeek,
         startMinuteOfDay = startMinuteOfDay,
         durationMinutes = durationMinutes

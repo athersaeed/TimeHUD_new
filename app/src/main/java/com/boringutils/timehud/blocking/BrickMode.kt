@@ -12,7 +12,9 @@ import java.util.TimeZone
 
 internal data class BrickModeConfig(
     val enabled: Boolean = false,
-    val allowedPackages: Set<String> = emptySet(),
+    val mode: UsageRestrictionMode = UsageRestrictionMode.RESTRICTED,
+    val restrictedAllowedPackages: Set<String> = emptySet(),
+    val brickAllowedPackages: Set<String> = emptySet(),
     val endsAtEpochMs: Long? = null
 ) {
     fun isActive(nowMs: Long): Boolean =
@@ -21,6 +23,60 @@ internal data class BrickModeConfig(
     fun remainingMs(nowMs: Long): Long? = endsAtEpochMs
         ?.takeIf { enabled }
         ?.let { (it - nowMs).coerceAtLeast(0L) }
+
+    fun allowedPackagesFor(mode: UsageRestrictionMode): Set<String> = when (mode) {
+        UsageRestrictionMode.RESTRICTED -> restrictedAllowedPackages
+        UsageRestrictionMode.BRICK -> brickAllowedPackages
+    }
+}
+
+internal enum class UsageRestrictionMode(val storageValue: String) {
+    RESTRICTED("restricted"),
+    BRICK("brick");
+
+    companion object {
+        fun fromStorageValue(value: String?): UsageRestrictionMode? = entries
+            .firstOrNull { it.storageValue == value }
+    }
+}
+
+internal object UsageRestrictionPolicy {
+    const val MAX_BRICK_ALLOWED_APPS = 8
+
+    fun strongestMode(
+        first: UsageRestrictionMode?,
+        second: UsageRestrictionMode?
+    ): UsageRestrictionMode? = when {
+        first == UsageRestrictionMode.BRICK || second == UsageRestrictionMode.BRICK -> {
+            UsageRestrictionMode.BRICK
+        }
+        first == UsageRestrictionMode.RESTRICTED || second == UsageRestrictionMode.RESTRICTED -> {
+            UsageRestrictionMode.RESTRICTED
+        }
+        else -> null
+    }
+
+    fun effectiveMode(
+        config: BrickModeConfig,
+        scheduledMode: UsageRestrictionMode?,
+        nowMs: Long
+    ): UsageRestrictionMode? = strongestMode(
+        config.mode.takeIf { config.isActive(nowMs) },
+        scheduledMode
+    )
+
+    fun canAddPackage(mode: UsageRestrictionMode, selectedCount: Int): Boolean =
+        mode != UsageRestrictionMode.BRICK || selectedCount < MAX_BRICK_ALLOWED_APPS
+
+    fun isModeActive(
+        config: BrickModeConfig,
+        schedules: List<BrickModeSchedule>,
+        mode: UsageRestrictionMode,
+        nowMs: Long,
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): Boolean =
+        (config.mode == mode && config.isActive(nowMs)) ||
+            BrickModeSchedulePolicy.isModeActive(schedules, mode, nowMs, timeZone)
 }
 
 internal object BrickModeTimer {
@@ -41,6 +97,7 @@ internal object BrickModeTimer {
 internal data class BrickModeSchedule(
     val id: String,
     val enabled: Boolean = true,
+    val mode: UsageRestrictionMode = UsageRestrictionMode.RESTRICTED,
     val daysOfWeek: Set<Int>,
     val startMinuteOfDay: Int,
     val durationMinutes: Int
@@ -74,7 +131,30 @@ internal object BrickModeSchedulePolicy {
         schedules: List<BrickModeSchedule>,
         nowMs: Long,
         timeZone: TimeZone = TimeZone.getDefault()
-    ): Boolean = schedules.any { isActive(it, nowMs, timeZone) }
+    ): Boolean = activeMode(schedules, nowMs, timeZone) != null
+
+    fun activeMode(
+        schedules: List<BrickModeSchedule>,
+        nowMs: Long,
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): UsageRestrictionMode? {
+        val activeModes = schedules.asSequence()
+            .filter { isActive(it, nowMs, timeZone) }
+            .map(BrickModeSchedule::mode)
+            .toSet()
+        return when {
+            UsageRestrictionMode.BRICK in activeModes -> UsageRestrictionMode.BRICK
+            UsageRestrictionMode.RESTRICTED in activeModes -> UsageRestrictionMode.RESTRICTED
+            else -> null
+        }
+    }
+
+    fun isModeActive(
+        schedules: List<BrickModeSchedule>,
+        mode: UsageRestrictionMode,
+        nowMs: Long,
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): Boolean = schedules.any { it.mode == mode && isActive(it, nowMs, timeZone) }
 
     fun nextBoundaryEpochMs(
         schedules: List<BrickModeSchedule>,
@@ -118,6 +198,7 @@ internal object BrickModeScheduleCodec {
             listOf(
                 schedule.id,
                 schedule.enabled,
+                schedule.mode.storageValue,
                 days,
                 schedule.startMinuteOfDay,
                 schedule.durationMinutes
@@ -131,13 +212,22 @@ internal object BrickModeScheduleCodec {
 
     private fun decodeSchedule(value: String): BrickModeSchedule? {
         val parts = value.split('|')
-        if (parts.size != 5) return null
+        if (parts.size !in 5..6) return null
+        val isLegacy = parts.size == 5
+        val mode = if (isLegacy) {
+            UsageRestrictionMode.RESTRICTED
+        } else {
+            UsageRestrictionMode.fromStorageValue(parts[2]) ?: return null
+        }
+        val daysIndex = if (isLegacy) 2 else 3
         val schedule = BrickModeSchedule(
             id = parts[0],
             enabled = parts[1].toBooleanStrictOrNull() ?: return null,
-            daysOfWeek = parts[2].split(',').mapNotNullTo(mutableSetOf(), String::toIntOrNull),
-            startMinuteOfDay = parts[3].toIntOrNull() ?: return null,
-            durationMinutes = parts[4].toIntOrNull() ?: return null
+            mode = mode,
+            daysOfWeek = parts[daysIndex].split(',')
+                .mapNotNullTo(mutableSetOf(), String::toIntOrNull),
+            startMinuteOfDay = parts[daysIndex + 1].toIntOrNull() ?: return null,
+            durationMinutes = parts[daysIndex + 2].toIntOrNull() ?: return null
         )
         return schedule.takeIf(BrickModeSchedule::isValid)
     }
@@ -146,7 +236,9 @@ internal object BrickModeScheduleCodec {
 internal object BrickModeSettings {
     private const val PREFERENCES_NAME = "timehud_brick_mode"
     private const val ENABLED_KEY = "enabled"
-    private const val ALLOWED_PACKAGES_KEY = "allowed_packages"
+    private const val MODE_KEY = "mode"
+    private const val RESTRICTED_ALLOWED_PACKAGES_KEY = "allowed_packages"
+    private const val BRICK_ALLOWED_PACKAGES_KEY = "brick_allowed_packages"
     private const val ENDS_AT_EPOCH_MS_KEY = "ends_at_epoch_ms"
     private const val SCHEDULES_KEY = "schedules"
 
@@ -154,7 +246,13 @@ internal object BrickModeSettings {
         val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
         val storedConfig = BrickModeConfig(
             enabled = preferences.getBoolean(ENABLED_KEY, false),
-            allowedPackages = preferences.getStringSet(ALLOWED_PACKAGES_KEY, emptySet())
+            mode = UsageRestrictionMode.fromStorageValue(preferences.getString(MODE_KEY, null))
+                ?: UsageRestrictionMode.RESTRICTED,
+            restrictedAllowedPackages = preferences
+                .getStringSet(RESTRICTED_ALLOWED_PACKAGES_KEY, emptySet())
+                .orEmpty()
+                .filterTo(mutableSetOf()) { it.isNotBlank() },
+            brickAllowedPackages = preferences.getStringSet(BRICK_ALLOWED_PACKAGES_KEY, emptySet())
                 .orEmpty()
                 .filterTo(mutableSetOf()) { it.isNotBlank() },
             endsAtEpochMs = preferences.getLong(ENDS_AT_EPOCH_MS_KEY, 0L)
@@ -170,8 +268,17 @@ internal object BrickModeSettings {
         return resolvedConfig
     }
 
-    fun setEnabled(context: Context, enabled: Boolean) {
+    fun setMode(context: Context, mode: UsageRestrictionMode): Boolean {
+        if (load(context).enabled) return false
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit {
+            putString(MODE_KEY, mode.storageValue)
+        }
+        return true
+    }
+
+    fun setEnabled(context: Context, mode: UsageRestrictionMode, enabled: Boolean) {
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit {
+            putString(MODE_KEY, mode.storageValue)
             putBoolean(ENABLED_KEY, enabled)
             remove(ENDS_AT_EPOCH_MS_KEY)
         }
@@ -179,25 +286,56 @@ internal object BrickModeSettings {
 
     fun startTimed(
         context: Context,
+        mode: UsageRestrictionMode,
         durationMinutes: Int,
         nowMs: Long = System.currentTimeMillis()
     ): Boolean {
         val endsAtEpochMs = BrickModeTimer.endTimeEpochMs(nowMs, durationMinutes) ?: return false
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit {
+            putString(MODE_KEY, mode.storageValue)
             putBoolean(ENABLED_KEY, true)
             putLong(ENDS_AT_EPOCH_MS_KEY, endsAtEpochMs)
         }
         return true
     }
 
-    fun setPackageAllowed(context: Context, packageName: String, allowed: Boolean) {
-        if (packageName.isBlank()) return
+    fun setPackageAllowed(
+        context: Context,
+        mode: UsageRestrictionMode,
+        packageName: String,
+        allowed: Boolean,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean {
+        if (packageName.isBlank()) return false
+        if (
+            mode == UsageRestrictionMode.BRICK &&
+            UsageRestrictionPolicy.isModeActive(
+                config = load(context, nowMs),
+                schedules = loadSchedules(context),
+                mode = mode,
+                nowMs = nowMs
+            )
+        ) {
+            return false
+        }
         val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        val packages = preferences.getStringSet(ALLOWED_PACKAGES_KEY, emptySet())
+        val packagesKey = when (mode) {
+            UsageRestrictionMode.RESTRICTED -> RESTRICTED_ALLOWED_PACKAGES_KEY
+            UsageRestrictionMode.BRICK -> BRICK_ALLOWED_PACKAGES_KEY
+        }
+        val packages = preferences.getStringSet(packagesKey, emptySet())
             .orEmpty()
             .toMutableSet()
+        if (
+            allowed &&
+            packageName !in packages &&
+            !UsageRestrictionPolicy.canAddPackage(mode, packages.size)
+        ) {
+            return false
+        }
         if (allowed) packages += packageName else packages -= packageName
-        preferences.edit { putStringSet(ALLOWED_PACKAGES_KEY, packages) }
+        preferences.edit { putStringSet(packagesKey, packages) }
+        return true
     }
 
     fun loadSchedules(context: Context): List<BrickModeSchedule> {
@@ -297,16 +435,17 @@ internal object BrickModeDecisionEngine {
         config: BrickModeConfig,
         packageName: String,
         catalog: BrickModeCatalog,
-        scheduledActive: Boolean = false,
+        scheduledMode: UsageRestrictionMode? = null,
         nowMs: Long = System.currentTimeMillis()
-    ): BlockDecision = when {
-        !config.isActive(nowMs) && !scheduledActive -> {
-            BlockDecision.Allow
+    ): BlockDecision {
+        val effectiveMode = UsageRestrictionPolicy.effectiveMode(config, scheduledMode, nowMs)
+            ?: return BlockDecision.Allow
+        return when {
+            packageName !in catalog.launchablePackages -> BlockDecision.Allow
+            packageName in catalog.alwaysAvailablePackages -> BlockDecision.Allow
+            packageName in config.allowedPackagesFor(effectiveMode) -> BlockDecision.Allow
+            else -> BlockDecision.Block(BlockReason.BRICK_MODE)
         }
-        packageName !in catalog.launchablePackages -> BlockDecision.Allow
-        packageName in catalog.alwaysAvailablePackages -> BlockDecision.Allow
-        packageName in config.allowedPackages -> BlockDecision.Allow
-        else -> BlockDecision.Block(BlockReason.BRICK_MODE)
     }
 }
 

@@ -69,6 +69,8 @@ import com.boringutils.timehud.blocking.BrickModeSchedule
 import com.boringutils.timehud.blocking.BrickModeSchedulePolicy
 import com.boringutils.timehud.blocking.BrickModeSettings
 import com.boringutils.timehud.blocking.BrickModeTimer
+import com.boringutils.timehud.blocking.UsageRestrictionMode
+import com.boringutils.timehud.blocking.UsageRestrictionPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -89,6 +91,7 @@ internal data class BrickModeAppUi(
 internal data class BrickModeUiState(
     val isLoading: Boolean = true,
     val enabled: Boolean = false,
+    val mode: UsageRestrictionMode = UsageRestrictionMode.RESTRICTED,
     val endsAtEpochMs: Long? = null,
     val schedules: List<BrickModeSchedule> = emptyList(),
     val apps: List<BrickModeAppUi> = emptyList()
@@ -163,22 +166,45 @@ internal class BrickModeViewModel(application: Application) : AndroidViewModel(a
     }
 
     fun setEnabled(enabled: Boolean) {
-        BrickModeSettings.setEnabled(getApplication(), enabled)
+        BrickModeSettings.setEnabled(getApplication(), _uiState.value.mode, enabled)
         refresh()
+    }
+
+    fun setMode(mode: UsageRestrictionMode) {
+        if (BrickModeSettings.setMode(getApplication(), mode)) refresh()
     }
 
     fun startTimed(durationMinutes: Int) {
-        if (BrickModeSettings.startTimed(getApplication(), durationMinutes)) refresh()
+        if (
+            BrickModeSettings.startTimed(
+                getApplication(),
+                _uiState.value.mode,
+                durationMinutes
+            )
+        ) {
+            refresh()
+        }
     }
 
     fun setPackageAllowed(packageName: String, allowed: Boolean) {
-        BrickModeSettings.setPackageAllowed(getApplication(), packageName, allowed)
+        BrickModeSettings.setPackageAllowed(
+            getApplication(),
+            _uiState.value.mode,
+            packageName,
+            allowed
+        )
         refresh()
     }
 
-    fun addSchedule(daysOfWeek: Set<Int>, startMinuteOfDay: Int, durationMinutes: Int) {
+    fun addSchedule(
+        mode: UsageRestrictionMode,
+        daysOfWeek: Set<Int>,
+        startMinuteOfDay: Int,
+        durationMinutes: Int
+    ) {
         val schedule = BrickModeSchedule(
             id = UUID.randomUUID().toString(),
+            mode = mode,
             daysOfWeek = daysOfWeek,
             startMinuteOfDay = startMinuteOfDay,
             durationMinutes = durationMinutes
@@ -204,9 +230,10 @@ internal class BrickModeViewModel(application: Application) : AndroidViewModel(a
         return BrickModeUiState(
             isLoading = false,
             enabled = config.enabled,
+            mode = config.mode,
             endsAtEpochMs = config.endsAtEpochMs,
             schedules = schedules,
-            apps = catalog.apps.map { app -> app.toUi(config.allowedPackages) }
+            apps = catalog.apps.map { app -> app.toUi(config.allowedPackagesFor(config.mode)) }
         )
     }
 
@@ -239,14 +266,27 @@ internal fun BrickModeScreen(
     val essentialApps = filteredApps.filter(BrickModeAppUi::alwaysAvailable)
     val selectableApps = filteredApps.filterNot(BrickModeAppUi::alwaysAvailable)
     val selectedCount = state.apps.count { it.allowed && !it.alwaysAvailable }
-    val scheduledActive = BrickModeSchedulePolicy.isAnyActive(state.schedules, nowMs)
-    val effectiveEnabled = state.enabled || scheduledActive
+    val scheduledMode = BrickModeSchedulePolicy.activeMode(state.schedules, nowMs)
+    val effectiveActiveMode = UsageRestrictionPolicy.strongestMode(
+        state.mode.takeIf { state.enabled },
+        scheduledMode
+    )
+    val brickModeActive =
+        (state.enabled && state.mode == UsageRestrictionMode.BRICK) ||
+            BrickModeSchedulePolicy.isModeActive(
+                state.schedules,
+                UsageRestrictionMode.BRICK,
+                nowMs
+            )
+    val brickSelectionLocked = state.mode == UsageRestrictionMode.BRICK && brickModeActive
+    val brickLimitReached = state.mode == UsageRestrictionMode.BRICK &&
+        selectedCount >= UsageRestrictionPolicy.MAX_BRICK_ALLOWED_APPS
     val remainingTimeText = state.endsAtEpochMs
         ?.takeIf { state.enabled }
         ?.let { endsAtEpochMs -> formatBrickModeRemaining(endsAtEpochMs - nowMs) }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
-    LaunchedEffect(state.enabled, state.endsAtEpochMs, state.schedules) {
+    LaunchedEffect(state.enabled, state.mode, state.endsAtEpochMs, state.schedules) {
         val endsAtEpochMs = state.endsAtEpochMs?.takeIf { state.enabled }
         val hasEnabledSchedule = state.schedules.any(BrickModeSchedule::enabled)
         if (endsAtEpochMs == null && !hasEnabledSchedule) return@LaunchedEffect
@@ -290,10 +330,26 @@ internal fun BrickModeScreen(
         }
 
         item {
+            UsageRestrictionModeSelector(
+                selectedMode = state.mode,
+                enabled = !state.enabled,
+                onModeSelected = viewModel::setMode
+            )
+        }
+
+        item {
             BrickModeStatusCard(
-                active = effectiveEnabled,
+                activeMode = effectiveActiveMode,
+                configuredMode = state.mode,
                 manualEnabled = state.enabled,
-                scheduledActive = scheduledActive,
+                scheduledActive = scheduledMode != null &&
+                    (
+                        !state.enabled ||
+                            (
+                                state.mode == UsageRestrictionMode.RESTRICTED &&
+                                    scheduledMode == UsageRestrictionMode.BRICK
+                            )
+                    ),
                 selectedCount = selectedCount,
                 remainingTimeText = remainingTimeText,
                 onEnabledChange = { enabled ->
@@ -308,6 +364,7 @@ internal fun BrickModeScreen(
 
         item {
             BrickModeTimerCard(
+                mode = state.mode,
                 durationMinutes = timerDurationInput,
                 durationHasError = timerDurationHasError,
                 enabled = state.enabled,
@@ -351,7 +408,7 @@ internal fun BrickModeScreen(
 
         if (
             !accessibilityServiceEnabled &&
-            (effectiveEnabled || state.schedules.any(BrickModeSchedule::enabled))
+            (effectiveActiveMode != null || state.schedules.any(BrickModeSchedule::enabled))
         ) {
             item {
                 BrickModeMessageCard(
@@ -359,6 +416,22 @@ internal fun BrickModeScreen(
                     message = stringResource(R.string.brick_mode_access_required_message),
                     actionLabel = stringResource(R.string.brick_mode_enable_access),
                     onAction = { showAccessibilityDisclosure = true }
+                )
+            }
+        }
+
+        if (brickSelectionLocked) {
+            item {
+                BrickModeMessageCard(
+                    title = stringResource(R.string.brick_mode_apps_locked_title),
+                    message = stringResource(R.string.brick_mode_apps_locked_message)
+                )
+            }
+        } else if (brickLimitReached) {
+            item {
+                BrickModeMessageCard(
+                    title = stringResource(R.string.brick_mode_limit_reached_title),
+                    message = stringResource(R.string.brick_mode_limit_reached_message)
                 )
             }
         }
@@ -416,16 +489,42 @@ internal fun BrickModeScreen(
                 }
             } else {
                 if (essentialApps.isNotEmpty()) {
-                    item { BrickModeSectionHeader(R.string.brick_mode_essential_apps) }
+                    item {
+                        BrickModeSectionHeader(
+                            title = stringResource(R.string.brick_mode_essential_apps)
+                        )
+                    }
                     items(essentialApps, key = { "essential:${it.packageName}" }) { app ->
                         BrickModeAppRow(app = app, onAllowedChange = {})
                     }
                 }
                 if (selectableApps.isNotEmpty()) {
-                    item { BrickModeSectionHeader(R.string.brick_mode_choose_apps) }
+                    item {
+                        BrickModeSectionHeader(
+                            title = stringResource(
+                                if (state.mode == UsageRestrictionMode.BRICK) {
+                                    R.string.brick_mode_choose_apps_limited
+                                } else {
+                                    R.string.brick_mode_choose_apps
+                                }
+                            ),
+                            subtitle = if (state.mode == UsageRestrictionMode.BRICK) {
+                                stringResource(
+                                    R.string.brick_mode_limit_count,
+                                    selectedCount,
+                                    UsageRestrictionPolicy.MAX_BRICK_ALLOWED_APPS
+                                )
+                            } else {
+                                null
+                            }
+                        )
+                    }
                     items(selectableApps, key = { "selectable:${it.packageName}" }) { app ->
                         BrickModeAppRow(
                             app = app,
+                            mode = state.mode,
+                            selectionEnabled = !brickSelectionLocked &&
+                                (app.allowed || !brickLimitReached),
                             onAllowedChange = { allowed ->
                                 viewModel.setPackageAllowed(app.packageName, allowed)
                             }
@@ -463,9 +562,10 @@ internal fun BrickModeScreen(
 
     if (showAddScheduleDialog) {
         AddBrickModeScheduleDialog(
+            initialMode = state.mode,
             onDismiss = { showAddScheduleDialog = false },
-            onSave = { daysOfWeek, startMinuteOfDay, durationMinutes ->
-                viewModel.addSchedule(daysOfWeek, startMinuteOfDay, durationMinutes)
+            onSave = { mode, daysOfWeek, startMinuteOfDay, durationMinutes ->
+                viewModel.addSchedule(mode, daysOfWeek, startMinuteOfDay, durationMinutes)
                 showAddScheduleDialog = false
             }
         )
@@ -473,25 +573,88 @@ internal fun BrickModeScreen(
 }
 
 @Composable
+private fun UsageRestrictionModeSelector(
+    selectedMode: UsageRestrictionMode,
+    enabled: Boolean,
+    onModeSelected: (UsageRestrictionMode) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF171725))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.restriction_mode_selector_title),
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            UsageRestrictionMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = selectedMode == mode,
+                    onClick = { onModeSelected(mode) },
+                    enabled = enabled,
+                    label = { Text(usageRestrictionModeLabel(mode)) }
+                )
+            }
+        }
+        Text(
+            text = stringResource(
+                when (selectedMode) {
+                    UsageRestrictionMode.RESTRICTED -> R.string.restricted_mode_description
+                    UsageRestrictionMode.BRICK -> R.string.strict_brick_mode_description
+                }
+            ),
+            color = Color(0xFF9999B5),
+            fontSize = 12.sp
+        )
+        if (!enabled) {
+            Text(
+                text = stringResource(R.string.restriction_mode_change_when_off),
+                color = Color(0xFFF3C969),
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+@Composable
 private fun BrickModeStatusCard(
-    active: Boolean,
+    activeMode: UsageRestrictionMode?,
+    configuredMode: UsageRestrictionMode,
     manualEnabled: Boolean,
     scheduledActive: Boolean,
     selectedCount: Int,
     remainingTimeText: String?,
     onEnabledChange: (Boolean) -> Unit
 ) {
-    val switchDescription = stringResource(R.string.brick_mode_switch_description)
-    val selectedCountText = pluralStringResource(
-        R.plurals.brick_mode_selected_count,
-        selectedCount,
-        selectedCount
+    val configuredModeName = usageRestrictionModeLabel(configuredMode)
+    val activeModeName = usageRestrictionModeLabel(activeMode ?: configuredMode)
+    val switchDescription = stringResource(
+        R.string.brick_mode_switch_description,
+        configuredModeName
     )
+    val selectedCountText = if (configuredMode == UsageRestrictionMode.BRICK) {
+        stringResource(
+            R.string.brick_mode_limit_count,
+            selectedCount,
+            UsageRestrictionPolicy.MAX_BRICK_ALLOWED_APPS
+        )
+    } else {
+        pluralStringResource(
+            R.plurals.brick_mode_selected_count,
+            selectedCount,
+            selectedCount
+        )
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(if (active) Color(0xFF18284A) else Color(0xFF171725))
+            .background(if (activeMode != null) Color(0xFF18284A) else Color(0xFF171725))
             .padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -499,11 +662,11 @@ private fun BrickModeStatusCard(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = when {
-                    scheduledActive && !manualEnabled -> {
-                        stringResource(R.string.brick_mode_active_scheduled)
+                    scheduledActive -> {
+                        stringResource(R.string.brick_mode_active_scheduled, activeModeName)
                     }
-                    active -> stringResource(R.string.brick_mode_active)
-                    else -> stringResource(R.string.brick_mode_inactive)
+                    activeMode != null -> stringResource(R.string.brick_mode_active, activeModeName)
+                    else -> stringResource(R.string.brick_mode_inactive, configuredModeName)
                 },
                 color = Color.White,
                 fontWeight = FontWeight.SemiBold
@@ -534,6 +697,7 @@ private fun BrickModeStatusCard(
 
 @Composable
 private fun BrickModeTimerCard(
+    mode: UsageRestrictionMode,
     durationMinutes: String,
     durationHasError: Boolean,
     enabled: Boolean,
@@ -541,6 +705,7 @@ private fun BrickModeTimerCard(
     onDurationChange: (String) -> Unit,
     onStartTimer: () -> Unit
 ) {
+    val modeName = usageRestrictionModeLabel(mode)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -550,7 +715,7 @@ private fun BrickModeTimerCard(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
-            text = stringResource(R.string.brick_mode_timer_title),
+            text = stringResource(R.string.brick_mode_timer_title, modeName),
             color = Color.White,
             fontWeight = FontWeight.SemiBold
         )
@@ -558,10 +723,11 @@ private fun BrickModeTimerCard(
             text = when {
                 remainingTimeText != null -> stringResource(
                     R.string.brick_mode_timer_active,
+                    modeName,
                     remainingTimeText
                 )
-                enabled -> stringResource(R.string.brick_mode_timer_until_off)
-                else -> stringResource(R.string.brick_mode_timer_description)
+                enabled -> stringResource(R.string.brick_mode_timer_until_off, modeName)
+                else -> stringResource(R.string.brick_mode_timer_description, modeName)
             },
             color = if (remainingTimeText != null) Color(0xFF75D69C) else Color(0xFF9999B5),
             fontSize = 13.sp
@@ -678,6 +844,7 @@ private fun BrickModeScheduleRow(
     onRemove: () -> Unit
 ) {
     val context = LocalContext.current
+    val modeText = usageRestrictionModeLabel(schedule.mode)
     val daysText = brickModeScheduleDaysText(schedule.daysOfWeek)
     val startText = remember(schedule.startMinuteOfDay) {
         formatBrickModeScheduleStart(context, schedule.startMinuteOfDay)
@@ -700,6 +867,7 @@ private fun BrickModeScheduleRow(
                 Text(
                     text = stringResource(
                         R.string.brick_mode_schedule_summary,
+                        modeText,
                         daysText,
                         startText,
                         durationText
@@ -739,10 +907,12 @@ private fun BrickModeScheduleRow(
 
 @Composable
 private fun AddBrickModeScheduleDialog(
+    initialMode: UsageRestrictionMode,
     onDismiss: () -> Unit,
-    onSave: (Set<Int>, Int, Int) -> Unit
+    onSave: (UsageRestrictionMode, Set<Int>, Int, Int) -> Unit
 ) {
     val context = LocalContext.current
+    var selectedMode by remember { mutableStateOf(initialMode) }
     var selectedDays by remember {
         mutableStateOf(
             setOf(
@@ -772,6 +942,19 @@ private fun AddBrickModeScheduleDialog(
         title = { Text(stringResource(R.string.brick_mode_schedule_dialog_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = stringResource(R.string.brick_mode_schedule_mode_label),
+                    fontWeight = FontWeight.SemiBold
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    UsageRestrictionMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = selectedMode == mode,
+                            onClick = { selectedMode = mode },
+                            label = { Text(usageRestrictionModeLabel(mode)) }
+                        )
+                    }
+                }
                 Text(
                     text = stringResource(R.string.brick_mode_schedule_days_label),
                     fontWeight = FontWeight.SemiBold
@@ -846,7 +1029,7 @@ private fun AddBrickModeScheduleDialog(
                 if (selectedDays.isEmpty() || startMinuteOfDay == null || duration == null) {
                     hasError = true
                 } else {
-                    onSave(selectedDays, startMinuteOfDay, duration)
+                    onSave(selectedMode, selectedDays, startMinuteOfDay, duration)
                 }
             }) {
                 Text(stringResource(R.string.brick_mode_schedule_save))
@@ -902,21 +1085,39 @@ private fun formatBrickModeScheduleStart(context: Context, startMinuteOfDay: Int
 }
 
 @Composable
-private fun BrickModeSectionHeader(titleRes: Int) {
-    Text(
-        text = stringResource(titleRes),
-        color = Color.White,
-        fontSize = 18.sp,
-        fontWeight = FontWeight.SemiBold
-    )
+private fun BrickModeSectionHeader(
+    title: String,
+    subtitle: String? = null
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = title,
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                color = Color(0xFF9999B5),
+                fontSize = 12.sp
+            )
+        }
+    }
 }
 
 @Composable
 private fun BrickModeAppRow(
     app: BrickModeAppUi,
+    mode: UsageRestrictionMode = UsageRestrictionMode.RESTRICTED,
+    selectionEnabled: Boolean = true,
     onAllowedChange: (Boolean) -> Unit
 ) {
-    val switchDescription = stringResource(R.string.brick_mode_app_switch_description, app.appName)
+    val switchDescription = stringResource(
+        R.string.brick_mode_app_switch_description,
+        app.appName,
+        usageRestrictionModeLabel(mode)
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -948,12 +1149,24 @@ private fun BrickModeAppRow(
         }
         Switch(
             checked = app.allowed,
-            onCheckedChange = if (app.alwaysAvailable) null else onAllowedChange,
-            enabled = !app.alwaysAvailable,
+            onCheckedChange = if (app.alwaysAvailable || !selectionEnabled) {
+                null
+            } else {
+                onAllowedChange
+            },
+            enabled = !app.alwaysAvailable && selectionEnabled,
             modifier = Modifier.semantics { contentDescription = switchDescription }
         )
     }
 }
+
+@Composable
+private fun usageRestrictionModeLabel(mode: UsageRestrictionMode): String = stringResource(
+    when (mode) {
+        UsageRestrictionMode.RESTRICTED -> R.string.restricted_mode_name
+        UsageRestrictionMode.BRICK -> R.string.strict_brick_mode_name
+    }
+)
 
 @Composable
 private fun BrickModeMessageCard(
