@@ -152,6 +152,12 @@ internal fun filterBrickModeApps(
     }
 }
 
+internal fun sortSelectableBrickModeApps(apps: List<BrickModeAppUi>): List<BrickModeAppUi> =
+    apps.sortedWith(
+        compareByDescending<BrickModeAppUi>(BrickModeAppUi::allowed)
+            .thenBy { it.appName.lowercase() }
+    )
+
 internal class BrickModeViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(BrickModeUiState())
     val uiState = _uiState.asStateFlow()
@@ -264,7 +270,9 @@ internal fun BrickModeScreen(
         filterBrickModeApps(state.apps, searchQuery)
     }
     val essentialApps = filteredApps.filter(BrickModeAppUi::alwaysAvailable)
-    val selectableApps = filteredApps.filterNot(BrickModeAppUi::alwaysAvailable)
+    val selectableApps = sortSelectableBrickModeApps(
+        filteredApps.filterNot(BrickModeAppUi::alwaysAvailable)
+    )
     val selectedCount = state.apps.count { it.allowed && !it.alwaysAvailable }
     val scheduledMode = BrickModeSchedulePolicy.activeMode(state.schedules, nowMs)
     val effectiveActiveMode = UsageRestrictionPolicy.strongestMode(

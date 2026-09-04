@@ -40,6 +40,22 @@ class BrickModeScreenTest {
     }
 
     @Test
+    fun chosen_apps_sort_before_unchosen_apps() {
+        val maps = BrickModeAppUi(
+            packageName = "com.example.maps",
+            appName = "Maps",
+            alwaysAvailable = false,
+            allowed = true
+        )
+        val spotify = apps[1]
+
+        assertEquals(
+            listOf(maps, spotify),
+            sortSelectableBrickModeApps(listOf(spotify, maps))
+        )
+    }
+
+    @Test
     fun duration_accepts_minutes_within_the_supported_range() {
         assertEquals(90, parseBrickModeDurationMinutes(" 90 "))
         assertEquals(null, parseBrickModeDurationMinutes("0"))
