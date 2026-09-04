@@ -26,6 +26,60 @@ class BrickModeTest {
     }
 
     @Test
+    fun active_timer_blocks_an_unchosen_app_before_its_deadline() {
+        assertEquals(
+            BlockDecision.Block(BlockReason.BRICK_MODE),
+            BrickModeDecisionEngine.decide(
+                config = BrickModeConfig(enabled = true, endsAtEpochMs = 120_000L),
+                packageName = "com.example.social",
+                catalog = catalog,
+                nowMs = 60_000L
+            )
+        )
+    }
+
+    @Test
+    fun expired_timer_allows_an_unchosen_app() {
+        assertEquals(
+            BlockDecision.Allow,
+            BrickModeDecisionEngine.decide(
+                config = BrickModeConfig(enabled = true, endsAtEpochMs = 120_000L),
+                packageName = "com.example.social",
+                catalog = catalog,
+                nowMs = 120_000L
+            )
+        )
+    }
+
+    @Test
+    fun timer_deadline_accepts_valid_duration_and_rejects_out_of_range_values() {
+        assertEquals(3_660_000L, BrickModeTimer.endTimeEpochMs(60_000L, 60))
+        assertEquals(null, BrickModeTimer.endTimeEpochMs(60_000L, 0))
+        assertEquals(
+            null,
+            BrickModeTimer.endTimeEpochMs(60_000L, BrickModeTimer.MAX_DURATION_MINUTES + 1)
+        )
+    }
+
+    @Test
+    fun expired_timer_resolves_to_disabled_without_changing_allowed_apps() {
+        val config = BrickModeConfig(
+            enabled = true,
+            allowedPackages = setOf("com.example.maps"),
+            endsAtEpochMs = 120_000L
+        )
+
+        assertEquals(
+            BrickModeConfig(
+                enabled = false,
+                allowedPackages = setOf("com.example.maps"),
+                endsAtEpochMs = null
+            ),
+            BrickModeTimer.resolveExpired(config, nowMs = 120_000L)
+        )
+    }
+
+    @Test
     fun background_only_package_is_never_blocked() {
         assertEquals(
             BlockDecision.Allow,

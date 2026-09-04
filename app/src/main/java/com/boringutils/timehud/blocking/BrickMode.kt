@@ -10,28 +10,76 @@ import androidx.core.content.edit
 
 internal data class BrickModeConfig(
     val enabled: Boolean = false,
-    val allowedPackages: Set<String> = emptySet()
-)
+    val allowedPackages: Set<String> = emptySet(),
+    val endsAtEpochMs: Long? = null
+) {
+    fun isActive(nowMs: Long): Boolean =
+        enabled && (endsAtEpochMs == null || endsAtEpochMs > nowMs)
+
+    fun remainingMs(nowMs: Long): Long? = endsAtEpochMs
+        ?.takeIf { enabled }
+        ?.let { (it - nowMs).coerceAtLeast(0L) }
+}
+
+internal object BrickModeTimer {
+    const val MAX_DURATION_MINUTES = 7 * 24 * 60
+
+    fun endTimeEpochMs(nowMs: Long, durationMinutes: Int): Long? = durationMinutes
+        .takeIf { it in 1..MAX_DURATION_MINUTES }
+        ?.let { nowMs + it * 60_000L }
+
+    fun resolveExpired(config: BrickModeConfig, nowMs: Long): BrickModeConfig =
+        if (config.enabled && config.endsAtEpochMs != null && config.endsAtEpochMs <= nowMs) {
+            config.copy(enabled = false, endsAtEpochMs = null)
+        } else {
+            config
+        }
+}
 
 internal object BrickModeSettings {
     private const val PREFERENCES_NAME = "timehud_brick_mode"
     private const val ENABLED_KEY = "enabled"
     private const val ALLOWED_PACKAGES_KEY = "allowed_packages"
+    private const val ENDS_AT_EPOCH_MS_KEY = "ends_at_epoch_ms"
 
-    fun load(context: Context): BrickModeConfig {
+    fun load(context: Context, nowMs: Long = System.currentTimeMillis()): BrickModeConfig {
         val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-        return BrickModeConfig(
+        val storedConfig = BrickModeConfig(
             enabled = preferences.getBoolean(ENABLED_KEY, false),
             allowedPackages = preferences.getStringSet(ALLOWED_PACKAGES_KEY, emptySet())
                 .orEmpty()
-                .filterTo(mutableSetOf()) { it.isNotBlank() }
+                .filterTo(mutableSetOf()) { it.isNotBlank() },
+            endsAtEpochMs = preferences.getLong(ENDS_AT_EPOCH_MS_KEY, 0L)
+                .takeIf { it > 0L }
         )
+        val resolvedConfig = BrickModeTimer.resolveExpired(storedConfig, nowMs)
+        if (storedConfig.enabled && !resolvedConfig.enabled) {
+            preferences.edit {
+                putBoolean(ENABLED_KEY, false)
+                remove(ENDS_AT_EPOCH_MS_KEY)
+            }
+        }
+        return resolvedConfig
     }
 
     fun setEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit {
             putBoolean(ENABLED_KEY, enabled)
+            remove(ENDS_AT_EPOCH_MS_KEY)
         }
+    }
+
+    fun startTimed(
+        context: Context,
+        durationMinutes: Int,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean {
+        val endsAtEpochMs = BrickModeTimer.endTimeEpochMs(nowMs, durationMinutes) ?: return false
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit {
+            putBoolean(ENABLED_KEY, true)
+            putLong(ENDS_AT_EPOCH_MS_KEY, endsAtEpochMs)
+        }
+        return true
     }
 
     fun setPackageAllowed(context: Context, packageName: String, allowed: Boolean) {
@@ -109,9 +157,10 @@ internal object BrickModeDecisionEngine {
     fun decide(
         config: BrickModeConfig,
         packageName: String,
-        catalog: BrickModeCatalog
+        catalog: BrickModeCatalog,
+        nowMs: Long = System.currentTimeMillis()
     ): BlockDecision = when {
-        !config.enabled -> BlockDecision.Allow
+        !config.isActive(nowMs) -> BlockDecision.Allow
         packageName !in catalog.launchablePackages -> BlockDecision.Allow
         packageName in catalog.alwaysAvailablePackages -> BlockDecision.Allow
         packageName in config.allowedPackages -> BlockDecision.Allow

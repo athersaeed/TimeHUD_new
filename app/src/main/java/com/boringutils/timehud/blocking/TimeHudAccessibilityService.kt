@@ -196,7 +196,12 @@ class TimeHudAccessibilityService : AccessibilityService() {
         }
 
         overlayController.render(targets, geometries)
-        scheduleNextLimitBoundary(appWindows, nowElapsedMs, nowWallMs)
+        scheduleNextBoundary(
+            appWindows = appWindows,
+            brickModeConfig = brickModeConfig,
+            nowElapsedMs = nowElapsedMs,
+            nowWallMs = nowWallMs
+        )
     }
 
     private fun updateFocusedPackage(newPackage: String?) {
@@ -281,21 +286,29 @@ class TimeHudAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun scheduleNextLimitBoundary(
+    private fun scheduleNextBoundary(
         appWindows: List<ObservedAppWindow>,
+        brickModeConfig: BrickModeConfig,
         nowElapsedMs: Long,
         nowWallMs: Long
     ) {
-        val focused = appWindows.firstOrNull { it.packageName == focusedPackage } ?: return
-        val limitMs = focused.rule?.dailyLimitMinutes?.toLong()?.times(60_000L) ?: return
-        val remainingMs = limitMs - currentFocusedUsageMs(
-            focused.packageName,
-            nowElapsedMs,
-            nowWallMs
-        )
-        if (remainingMs > 0L) {
-            scheduleEvaluation(delayMs = remainingMs.coerceAtMost(MAX_LIMIT_TIMER_DELAY_MS))
-        }
+        val appLimitRemainingMs = appWindows
+            .firstOrNull { it.packageName == focusedPackage }
+            ?.let { focused ->
+                val limitMs = focused.rule?.dailyLimitMinutes?.toLong()?.times(60_000L)
+                    ?: return@let null
+                limitMs - currentFocusedUsageMs(
+                    focused.packageName,
+                    nowElapsedMs,
+                    nowWallMs
+                )
+            }
+            ?.takeIf { it > 0L }
+        val brickModeRemainingMs = brickModeConfig.remainingMs(nowWallMs)
+            ?.takeIf { it > 0L }
+        val nextBoundaryMs = listOfNotNull(appLimitRemainingMs, brickModeRemainingMs).minOrNull()
+            ?: return
+        scheduleEvaluation(delayMs = nextBoundaryMs.coerceAtMost(MAX_BOUNDARY_TIMER_DELAY_MS))
     }
 
     private fun returnHome() {
@@ -343,7 +356,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
     private companion object {
         const val WINDOW_DEBOUNCE_MS = 120L
         const val HOME_NAVIGATION_DELAY_MS = 350L
-        const val MAX_LIMIT_TIMER_DELAY_MS = 30_000L
+        const val MAX_BOUNDARY_TIMER_DELAY_MS = 30_000L
         const val BRICK_CATALOG_REFRESH_MS = 60_000L
     }
 }

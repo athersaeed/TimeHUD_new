@@ -146,4 +146,14 @@
     <string name="brick_mode_choose_apps">Choose available apps</string>
     <string name="brick_mode_always_available">Essential — always available</string>
     <string name="brick_mode_app_switch_description">Allow %1$s during Brick Mode</string>
+    <string name="brick_mode_timer_title">Brick Mode timer</string>
+    <string name="brick_mode_timer_description">Set a duration and Brick Mode will turn off automatically. The main switch still keeps it on until you turn it off.</string>
+    <string name="brick_mode_timer_minutes_label">Duration in minutes</string>
+    <string name="brick_mode_timer_range">From 1 minute to 7 days</string>
+    <string name="brick_mode_timer_invalid">Enter between 1 and 10,080 minutes</string>
+    <string name="brick_mode_timer_start">Start timer</string>
+    <string name="brick_mode_timer_set">Set timer</string>
+    <string name="brick_mode_timer_active">Timed Brick Mode: %1$s remaining</string>
+    <string name="brick_mode_timer_until_off">Brick Mode will stay on until you turn it off. Set a duration below to add an automatic stop.</string>
+    <string name="brick_mode_timer_remaining">%1$s remaining</string>
 </resources>

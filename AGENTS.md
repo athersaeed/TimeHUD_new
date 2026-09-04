@@ -272,6 +272,7 @@ Preserve these unless the request explicitly changes them.
 ### Brick Mode behavior
 
 - Brick Mode is off by default and persists its enabled state and chosen package allow-list locally.
+- Brick Mode can run until manually disabled or use a persisted one-minute-to-seven-day timer. A timed session must stop enforcement automatically at its wall-clock deadline, including after the activity is closed or the process is recreated.
 - Enforcement applies only to visible packages that Android reports as launchable. Background-only services and non-launchable system processes must fail open and remain unaffected.
 - TimeHUD, detected Home launchers, Android Settings, and installed apps matching the protected reference list remain available even if the user does not choose them.
 - A chosen app remains subject to any separately configured App limits rule; Brick Mode does not erase or bypass those rules.

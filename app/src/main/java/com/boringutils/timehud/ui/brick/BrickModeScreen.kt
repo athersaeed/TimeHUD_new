@@ -32,6 +32,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,6 +49,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,8 +63,10 @@ import com.boringutils.timehud.R
 import com.boringutils.timehud.blocking.BrickModeApp
 import com.boringutils.timehud.blocking.BrickModeCatalogLoader
 import com.boringutils.timehud.blocking.BrickModeSettings
+import com.boringutils.timehud.blocking.BrickModeTimer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -78,8 +82,28 @@ internal data class BrickModeAppUi(
 internal data class BrickModeUiState(
     val isLoading: Boolean = true,
     val enabled: Boolean = false,
+    val endsAtEpochMs: Long? = null,
     val apps: List<BrickModeAppUi> = emptyList()
 )
+
+internal fun parseBrickModeDurationMinutes(value: String): Int? = value
+    .trim()
+    .toIntOrNull()
+    ?.takeIf { it in 1..BrickModeTimer.MAX_DURATION_MINUTES }
+
+internal fun formatBrickModeRemaining(remainingMs: Long): String {
+    val totalSeconds = (remainingMs.coerceAtLeast(0L) + 999L) / 1_000L
+    val days = totalSeconds / 86_400L
+    val hours = totalSeconds % 86_400L / 3_600L
+    val minutes = totalSeconds % 3_600L / 60L
+    val seconds = totalSeconds % 60L
+    return when {
+        days > 0L -> "${days}d ${hours}h ${minutes}m ${seconds}s"
+        hours > 0L -> "${hours}h ${minutes}m ${seconds}s"
+        minutes > 0L -> "${minutes}m ${seconds}s"
+        else -> "${seconds}s"
+    }
+}
 
 internal fun filterBrickModeApps(
     apps: List<BrickModeAppUi>,
@@ -111,6 +135,10 @@ internal class BrickModeViewModel(application: Application) : AndroidViewModel(a
         refresh()
     }
 
+    fun startTimed(durationMinutes: Int) {
+        if (BrickModeSettings.startTimed(getApplication(), durationMinutes)) refresh()
+    }
+
     fun setPackageAllowed(packageName: String, allowed: Boolean) {
         BrickModeSettings.setPackageAllowed(getApplication(), packageName, allowed)
         refresh()
@@ -123,6 +151,7 @@ internal class BrickModeViewModel(application: Application) : AndroidViewModel(a
         return BrickModeUiState(
             isLoading = false,
             enabled = config.enabled,
+            endsAtEpochMs = config.endsAtEpochMs,
             apps = catalog.apps.map { app -> app.toUi(config.allowedPackages) }
         )
     }
@@ -146,14 +175,31 @@ internal fun BrickModeScreen(
     val focusManager = LocalFocusManager.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var showAccessibilityDisclosure by remember { mutableStateOf(false) }
+    var timerDurationInput by rememberSaveable { mutableStateOf("60") }
+    var timerDurationHasError by rememberSaveable { mutableStateOf(false) }
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val filteredApps = remember(state.apps, searchQuery) {
         filterBrickModeApps(state.apps, searchQuery)
     }
     val essentialApps = filteredApps.filter(BrickModeAppUi::alwaysAvailable)
     val selectableApps = filteredApps.filterNot(BrickModeAppUi::alwaysAvailable)
     val selectedCount = state.apps.count { it.allowed && !it.alwaysAvailable }
+    val remainingTimeText = state.endsAtEpochMs
+        ?.takeIf { state.enabled }
+        ?.let { endsAtEpochMs -> formatBrickModeRemaining(endsAtEpochMs - nowMs) }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(state.enabled, state.endsAtEpochMs) {
+        val endsAtEpochMs = state.endsAtEpochMs?.takeIf { state.enabled } ?: return@LaunchedEffect
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            if (nowMs >= endsAtEpochMs) {
+                viewModel.refresh()
+                break
+            }
+            delay(1_000L)
+        }
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) viewModel.refresh()
@@ -188,11 +234,38 @@ internal fun BrickModeScreen(
             BrickModeStatusCard(
                 enabled = state.enabled,
                 selectedCount = selectedCount,
+                remainingTimeText = remainingTimeText,
                 onEnabledChange = { enabled ->
                     if (enabled && !accessibilityServiceEnabled) {
                         showAccessibilityDisclosure = true
                     } else {
                         viewModel.setEnabled(enabled)
+                    }
+                }
+            )
+        }
+
+        item {
+            BrickModeTimerCard(
+                durationMinutes = timerDurationInput,
+                durationHasError = timerDurationHasError,
+                enabled = state.enabled,
+                remainingTimeText = remainingTimeText,
+                onDurationChange = { value ->
+                    if (value.length <= 5 && value.all(Char::isDigit)) {
+                        timerDurationInput = value
+                        timerDurationHasError = false
+                    }
+                },
+                onStartTimer = {
+                    val durationMinutes = parseBrickModeDurationMinutes(timerDurationInput)
+                    if (durationMinutes == null) {
+                        timerDurationHasError = true
+                    } else if (!accessibilityServiceEnabled) {
+                        showAccessibilityDisclosure = true
+                    } else {
+                        timerDurationHasError = false
+                        viewModel.startTimed(durationMinutes)
                     }
                 }
             )
@@ -318,6 +391,7 @@ internal fun BrickModeScreen(
 private fun BrickModeStatusCard(
     enabled: Boolean,
     selectedCount: Int,
+    remainingTimeText: String?,
     onEnabledChange: (Boolean) -> Unit
 ) {
     val switchDescription = stringResource(R.string.brick_mode_switch_description)
@@ -351,12 +425,100 @@ private fun BrickModeStatusCard(
                 color = Color(0xFF9999B5),
                 fontSize = 12.sp
             )
+            if (remainingTimeText != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.brick_mode_timer_remaining, remainingTimeText),
+                    color = Color(0xFF75D69C),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
         Switch(
             checked = enabled,
             onCheckedChange = onEnabledChange,
             modifier = Modifier.semantics { contentDescription = switchDescription }
         )
+    }
+}
+
+@Composable
+private fun BrickModeTimerCard(
+    durationMinutes: String,
+    durationHasError: Boolean,
+    enabled: Boolean,
+    remainingTimeText: String?,
+    onDurationChange: (String) -> Unit,
+    onStartTimer: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF171725))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.brick_mode_timer_title),
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = when {
+                remainingTimeText != null -> stringResource(
+                    R.string.brick_mode_timer_active,
+                    remainingTimeText
+                )
+                enabled -> stringResource(R.string.brick_mode_timer_until_off)
+                else -> stringResource(R.string.brick_mode_timer_description)
+            },
+            color = if (remainingTimeText != null) Color(0xFF75D69C) else Color(0xFF9999B5),
+            fontSize = 13.sp
+        )
+        OutlinedTextField(
+            value = durationMinutes,
+            onValueChange = onDurationChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.brick_mode_timer_minutes_label)) },
+            supportingText = {
+                Text(
+                    stringResource(
+                        if (durationHasError) {
+                            R.string.brick_mode_timer_invalid
+                        } else {
+                            R.string.brick_mode_timer_range
+                        }
+                    )
+                )
+            },
+            isError = durationHasError,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done
+            ),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                cursorColor = Color(0xFF668DFF),
+                focusedBorderColor = Color(0xFF668DFF),
+                unfocusedBorderColor = Color(0xFF3A3A50),
+                focusedLabelColor = Color(0xFFAEC2FF),
+                unfocusedLabelColor = Color(0xFF9999B5)
+            )
+        )
+        Button(
+            onClick = onStartTimer,
+            modifier = Modifier.align(Alignment.End)
+        ) {
+            Text(
+                stringResource(
+                    if (enabled) R.string.brick_mode_timer_set else R.string.brick_mode_timer_start
+                )
+            )
+        }
     }
 }
 
