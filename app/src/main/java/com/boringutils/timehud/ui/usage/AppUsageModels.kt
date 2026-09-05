@@ -9,6 +9,19 @@ internal data class AppUsageEntry(
     val durationMs: Long
 )
 
+internal data class AppUsageSummary(
+    val durationMs: Long,
+    val appCount: Int
+)
+
+internal fun buildAppUsageSummary(
+    screenTimeDurationMs: Long,
+    entries: List<AppUsageEntry>
+): AppUsageSummary = AppUsageSummary(
+    durationMs = screenTimeDurationMs.coerceAtLeast(0L),
+    appCount = entries.size
+)
+
 internal data class AppUsageEvent(
     val packageName: String,
     val timestampMs: Long,

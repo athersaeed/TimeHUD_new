@@ -382,13 +382,16 @@ internal object ScreenTimeDisplay {
         return "${hours}h${minutes}m"
     }
 
-    fun queryMs(context: Context): Long {
+    fun queryMs(
+        context: Context,
+        nowMs: Long = System.currentTimeMillis()
+    ): Long {
         val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE)
             as? UsageStatsManager ?: return 0L
         val powerManager = context.getSystemService(Context.POWER_SERVICE)
             as? android.os.PowerManager ?: return 0L
 
-        val calendar = Calendar.getInstance()
+        val calendar = Calendar.getInstance().apply { timeInMillis = nowMs }
         if (calendar.get(Calendar.HOUR_OF_DAY) < 3) {
             calendar.add(Calendar.DAY_OF_YEAR, -1)
         }
@@ -398,8 +401,7 @@ internal object ScreenTimeDisplay {
         calendar.set(Calendar.MILLISECOND, 0)
 
         val startOfPeriod = calendar.timeInMillis
-        val now = System.currentTimeMillis()
-        val events = usageStatsManager.queryEvents(startOfPeriod, now)
+        val events = usageStatsManager.queryEvents(startOfPeriod, nowMs)
         var totalScreenTime = 0L
         var lastInteractiveTime = 0L
         var firstEvent = true
@@ -425,9 +427,9 @@ internal object ScreenTimeDisplay {
         }
 
         if (lastInteractiveTime > 0) {
-            totalScreenTime += now - lastInteractiveTime
+            totalScreenTime += nowMs - lastInteractiveTime
         } else if (firstEvent && powerManager.isInteractive) {
-            totalScreenTime += now - startOfPeriod
+            totalScreenTime += nowMs - startOfPeriod
         }
         return totalScreenTime
     }

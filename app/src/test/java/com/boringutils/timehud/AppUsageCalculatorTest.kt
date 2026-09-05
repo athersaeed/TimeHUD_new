@@ -1,8 +1,10 @@
 package com.boringutils.timehud
 
 import com.boringutils.timehud.ui.usage.AppUsageCalculator
+import com.boringutils.timehud.ui.usage.AppUsageEntry
 import com.boringutils.timehud.ui.usage.AppUsageEvent
 import com.boringutils.timehud.ui.usage.AppUsageEventType
+import com.boringutils.timehud.ui.usage.buildAppUsageSummary
 import com.boringutils.timehud.ui.usage.currentUsagePeriodStart
 import com.boringutils.timehud.ui.usage.formatAppUsageDuration
 import java.util.Calendar
@@ -64,6 +66,22 @@ class AppUsageCalculatorTest {
         )
 
         assertEquals(60_000L, durations["instagram"])
+    }
+
+    @Test
+    fun dashboard_summary_uses_screen_time_instead_of_overlapping_app_sum() {
+        val entries = listOf(
+            AppUsageEntry("chatgpt", "ChatGPT", 4 * 60 * 60_000L),
+            AppUsageEntry("firefox", "Firefox", 4 * 60 * 60_000L)
+        )
+
+        val summary = buildAppUsageSummary(
+            screenTimeDurationMs = 7 * 60 * 60_000L,
+            entries = entries
+        )
+
+        assertEquals(7 * 60 * 60_000L, summary.durationMs)
+        assertEquals(2, summary.appCount)
     }
 
     @Test

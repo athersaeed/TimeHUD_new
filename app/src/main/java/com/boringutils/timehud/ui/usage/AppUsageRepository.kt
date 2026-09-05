@@ -5,10 +5,12 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import com.boringutils.timehud.ScreenTimeDisplay
 
 internal sealed interface AppUsageLoadResult {
     data class Success(
         val periodStartMs: Long,
+        val screenTimeDurationMs: Long,
         val entries: List<AppUsageEntry>
     ) : AppUsageLoadResult
 
@@ -61,7 +63,11 @@ internal object AppUsageRepository {
                     .thenBy { it.appName.lowercase() }
             )
 
-            AppUsageLoadResult.Success(periodStartMs = periodStartMs, entries = entries)
+            AppUsageLoadResult.Success(
+                periodStartMs = periodStartMs,
+                screenTimeDurationMs = ScreenTimeDisplay.queryMs(context, nowMs),
+                entries = entries
+            )
         } catch (_: SecurityException) {
             AppUsageLoadResult.AccessDenied
         } catch (_: RuntimeException) {

@@ -61,6 +61,7 @@ internal enum class AppUsageError {
 internal data class AppUsageUiState(
     val isLoading: Boolean = false,
     val entries: List<AppUsageEntry> = emptyList(),
+    val screenTimeDurationMs: Long = 0L,
     val periodStartMs: Long? = null,
     val error: AppUsageError? = null
 )
@@ -85,6 +86,7 @@ internal class AppUsageViewModel(application: Application) : AndroidViewModel(ap
             _uiState.value = when (result) {
                 is AppUsageLoadResult.Success -> AppUsageUiState(
                     entries = result.entries,
+                    screenTimeDurationMs = result.screenTimeDurationMs,
                     periodStartMs = result.periodStartMs
                 )
                 AppUsageLoadResult.AccessDenied -> AppUsageUiState(
@@ -159,7 +161,14 @@ internal fun AppUsageScreen(
                 )
             }
             else -> {
-                item { AppUsageSummary(entries = state.entries) }
+                item {
+                    AppUsageSummaryCard(
+                        summary = buildAppUsageSummary(
+                            screenTimeDurationMs = state.screenTimeDurationMs,
+                            entries = state.entries
+                        )
+                    )
+                }
                 item {
                     Text(
                         text = stringResource(R.string.app_usage_top_apps),
@@ -261,8 +270,7 @@ private fun UsageMessageCard(
 }
 
 @Composable
-private fun AppUsageSummary(entries: List<AppUsageEntry>) {
-    val totalDuration = entries.sumOf { it.durationMs }
+private fun AppUsageSummaryCard(summary: AppUsageSummary) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -271,13 +279,13 @@ private fun AppUsageSummary(entries: List<AppUsageEntry>) {
             .padding(18.dp)
     ) {
         Text(
-            text = formatAppUsageDuration(totalDuration),
+            text = formatAppUsageDuration(summary.durationMs),
             color = TimeHudColors.textPrimary,
             fontSize = 32.sp,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = stringResource(R.string.app_usage_total, entries.size),
+            text = stringResource(R.string.app_usage_total, summary.appCount),
             color = TimeHudColors.textSecondary,
             fontSize = 13.sp
         )

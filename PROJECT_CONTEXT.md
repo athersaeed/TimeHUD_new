@@ -385,7 +385,7 @@ Schema:
 - `queryScreenTimeMs()` reads `UsageStatsManager.queryEvents()` from the most recent 3:00 AM boundary, looking for numeric event types 15 and 16 (screen interactive/non-interactive), and uses `PowerManager.isInteractive` for an empty/current interval edge case (`OverlayService.kt:542-593`).
 - There is no caching; the entire period is queried again every 10 seconds on the main thread.
 - There is no structured error mapping, retry policy, telemetry, or test coverage for this algorithm.
-- The App usage page separately reads per-package foreground/background events from the most recent 3:00 AM boundary on `Dispatchers.IO`. It totals intervals per package, resolves an application label when Android permits it, sorts by duration descending, and falls back to the package name when a label is unavailable.
+- The App usage page separately reads per-package foreground/background events from the most recent 3:00 AM boundary on `Dispatchers.IO`. Its headline uses the same interactive-screen-time query as the HUD bubble so overlapping package intervals cannot inflate the displayed total. The per-app chart and rows still total intervals per package, resolve an application label when Android permits it, sort by duration descending, and fall back to the package name when a label is unavailable.
 - Per-app results are refreshed on page entry/resume or by the Refresh button and are not persisted. The screen models permission-required, loading, empty, unavailable, and success states; pure aggregation/boundary/formatting behavior has JVM tests.
 
 ### Network/API/database status
