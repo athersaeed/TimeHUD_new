@@ -202,8 +202,8 @@ TimeHUD_cloud/
         ui/brick/
           BrickModeScreen.kt           Searchable allow-list destination and ViewModel
         ui/theme/
-          Color.kt                     Template Compose color tokens
-          Theme.kt                     Material 3 dynamic/light/dark theme selection
+          Color.kt                     Soft Graphite semantic Compose color tokens
+          Theme.kt                     Fixed Material 3 Soft Graphite dark scheme
           Type.kt                      One customized bodyLarge typography style
         ui/backup/
           GoalBackupPanel.kt           Backup controls, status, and replace confirmation dialog
@@ -216,7 +216,7 @@ TimeHUD_cloud/
       res/
         layout/overlay_passive.xml     Draggable screen-time bubble
         layout/overlay_active.xml      Full-screen check-in, agenda, modal, celebration layers
-        values/                        App/notification strings, legacy colors, platform theme
+        values/                        App/notification strings, graphite colors, platform theme
         drawable/                      Launcher vectors and two currently unused backgrounds
         mipmap-*/                      Launcher icons
         xml/                            Backup/data-extraction template rules
@@ -438,8 +438,8 @@ Other platform usage:
 
 ### Compose activity
 
-- `TimeHUDTheme` uses Material 3 and chooses dynamic light/dark color on Android 12+, otherwise template purple schemes (`ui/theme/Theme.kt:14-57`).
-- In practice, `MainActivity` hardcodes a dark `#0D0D1A` surface and most component colors, so system theme/dynamic color has limited effect (`MainActivity.kt:68-72`, `:216-321`).
+- `TimeHUDTheme` uses one fixed Material 3 Soft Graphite dark scheme. Dynamic wallpaper color and the old template purple schemes are disabled so the grayscale palette remains consistent across supported Android versions (`ui/theme/Color.kt`, `ui/theme/Theme.kt`).
+- Compose screens share semantic `TimeHudColors` tokens for backgrounds, surfaces, borders, text, actions, disabled states, and status roles. The palette uses equal red, green, and blue channels so it remains true grayscale (`ui/theme/Color.kt`, `MainActivity.kt`, `ui/`).
 - Typography only customizes `bodyLarge`; most screen text declares explicit `sp`, weights, and colors (`ui/theme/Type.kt`).
 - Reusable Compose pieces are `PermissionCard`, `GoalSettingsPanel`, `GoalBackupPanel`, `GoalImportConfirmationDialog`, and `timeHudTextFieldColors()`.
 - Setup layout is vertically scrollable and applies status/navigation-bar padding, which supports smaller screens better than the overlay.
@@ -447,9 +447,9 @@ Other platform usage:
 ### Overlay UI
 
 - Overlays use platform XML `LinearLayout`, `FrameLayout`, `ScrollView`, `Button`, `Switch`, `CheckBox`, and programmatically created goal rows.
-- The application XML theme is legacy `android:Theme.Material.Light.NoActionBar`, while the content is visually dark and the activity uses Material 3 Compose (`values/themes.xml:4`).
-- Colors, spacing, strings, and text sizes are mostly hardcoded across Kotlin/XML. `bg_active.xml`, `bg_passive.xml`, and all legacy colors in `values/colors.xml` are currently unused according to lint.
-- The 64dp bubble uses compact green monospace text; the active timer uses 74sp. The goals list scrolls, but the full active layout has fixed top content and no system-inset handling.
+- The application XML theme uses `android:Theme.Material.NoActionBar`, matching the dark Compose surface (`values/themes.xml`).
+- Platform overlay colors use named Soft Graphite resources from `values/colors.xml`; programmatic overlay rows and animation dots resolve the same resource roles. Spacing, strings, and text sizes remain mostly hardcoded across Kotlin/XML.
+- The 64dp bubble uses compact white monospace text with a graphite fill and light-gray border; the active timer uses 74sp. The goals list scrolls, but the full active layout has fixed top content and no system-inset handling.
 
 ### Accessibility, localization, and states
 
@@ -660,9 +660,9 @@ The most important untested behavior is also the most failure-prone: total scree
 ### Placeholders, hardcoded data, and disabled code
 
 - Hardcoded default goals are user-visible seed data (`GoalSettings.kt:28-34`), not remote/mock API data.
-- Much of the UI copy/color/spacing is hardcoded in `MainActivity.kt` and the two overlay layouts.
-- `backup_rules.xml`, `data_extraction_rules.xml`, `proguard-rules.pro`, theme colors, and typography retain Android Studio template content. Android OS automatic backup remains disabled; this is separate from manual goal export.
-- `bg_active.xml`, `bg_passive.xml`, and `values/colors.xml` resources are unused according to lint.
+- Much of the UI copy and spacing remains hardcoded in `MainActivity.kt` and the two overlay layouts; colors now use shared semantic Compose tokens or named XML resources.
+- `backup_rules.xml`, `data_extraction_rules.xml`, `proguard-rules.pro`, and typography retain Android Studio template content. Android OS automatic backup remains disabled; this is separate from manual goal export.
+- `bg_active.xml` and `bg_passive.xml` remain legacy drawable resources; the active/passive overlay layouts use the Soft Graphite palette directly through named color resources and `bg_overlay_bubble.xml`.
 - Empty `app/src/debug/res/values/` exists but defines no debug override.
 - No meaningful application code is commented out or disabled. No app-feature TODO/FIXME/HACK markers were found.
 
@@ -692,7 +692,7 @@ The most important untested behavior is also the most failure-prone: total scree
 | `BootReceiver.kt` | Boot/update restart gate | Background entry point with API compatibility issue | Startup preferences, permission checks, service |
 | `res/layout/overlay_active.xml` | Full-screen overlay/modal/celebration structure | Most complex UI and accessibility surface | `OverlayService` view IDs/mutations |
 | `res/layout/overlay_passive.xml` | Passive timer structure | Always-visible runtime UI | `OverlayService` |
-| `ui/theme/Theme.kt` | Compose Material theme selection | Defines theme defaults, though activity overrides many values | `MainActivity`, color/type files |
+| `ui/theme/Theme.kt` | Fixed Compose Material Soft Graphite scheme | Defines grayscale defaults used across Compose controls | `MainActivity`, color/type files |
 | `ui/backup/GoalBackupPanel.kt` | Backup controls, status messages, and confirmation dialog | Owns the user-facing backup surface | `MainActivity`, string resources |
 | `ui/navigation/TimeHudDrawerScaffold.kt` | Drawer and enum-backed page switching | Separates setup, usage, and permission concerns without a route dependency | `MainActivity`, Back handling |
 | `ui/usage/` | Per-app usage aggregation, platform query, ViewModel, and Compose presentation | Owns the new chart/list feature and keeps provider work off the main thread | `UsageStatsManager`, `PackageManager`, Lifecycle ViewModel |
@@ -729,7 +729,7 @@ Future work on screen-time behavior should read `OverlayService.kt`, `AndroidMan
 | **Medium** | Automatic full-screen interruption has weak escape behavior | It covers all apps and intercepts touches, while close is disabled for five seconds and normal Back is not owned by the overlay window. Bubble-opened check-ins can close immediately, but an automatic-flow UI regression can still trap input until the service is stopped externally. |
 | **Low** | Calendar import semantics are lossy/stale | Import removes all lines after an exact header, persists a day-specific snapshot, and turns header/events into goal rows. Provider exceptions look like an empty calendar. |
 | **Low** | Goal identity collisions | Normalization strips punctuation/diacritics and truncates display to eight rows, so distinct goals can share completion state or disappear from overlay without warning. |
-| **Low** | Design/resources are inconsistent | Compose Material 3, a legacy platform theme, platform overlay widgets, template colors, and hardcoded tokens coexist; unused resources increase maintenance noise. |
+| **Low** | Theme definitions can drift | Compose and platform overlays share the Soft Graphite roles but define their values in Kotlin and XML separately; future palette changes must keep both definitions aligned. |
 | **Low** | No crash/analytics diagnostics | Runtime failures are mostly invisible beyond a `TimeHUD` debug log message; production diagnosis would be difficult. |
 
 No exposed credential was found. The main security concern is privileged local capability and data handling, not leaked secrets.
@@ -792,7 +792,7 @@ Do not treat this list as work already completed.
 2. Let users configure reminder cadence/reset boundary or temporarily pause the HUD, if product intent supports it.
 3. Provide explicit save/validation feedback and warn when more than eight goals will be hidden.
 4. Make the active overlay safely dismissible through accessible Back/keyboard/switch controls while preserving the intended check-in.
-5. Extract/localize strings and consolidate theme tokens; test dynamic color rather than mixing it with mostly hardcoded colors.
+5. Extract/localize remaining strings and dimensions, then add screenshot coverage for the fixed Soft Graphite theme across representative screens and font scales.
 
 ### Production-readiness tasks
 

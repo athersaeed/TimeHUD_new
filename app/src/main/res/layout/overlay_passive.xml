@@ -21,7 +21,7 @@
         android:shadowDy="0"
         android:shadowRadius="4"
         android:text="@string/overlay_bubble_time_placeholder"
-        android:textColor="#FF8DFFBB"
+        android:textColor="@color/graphite_text_primary"
         android:textSize="13sp"
         android:textStyle="bold" />
 

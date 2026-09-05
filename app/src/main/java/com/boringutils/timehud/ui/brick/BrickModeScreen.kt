@@ -43,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
@@ -63,6 +62,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.boringutils.timehud.R
+import com.boringutils.timehud.ui.theme.TimeHudColors
 import com.boringutils.timehud.blocking.BrickModeApp
 import com.boringutils.timehud.blocking.BrickModeCatalogLoader
 import com.boringutils.timehud.blocking.BrickModeSchedule
@@ -325,14 +325,14 @@ internal fun BrickModeScreen(
         item {
             Text(
                 text = stringResource(R.string.brick_mode_heading),
-                color = Color.White,
+                color = TimeHudColors.textPrimary,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = stringResource(R.string.brick_mode_description),
-                color = Color(0xFF9999B5),
+                color = TimeHudColors.textSecondary,
                 fontSize = 13.sp
             )
         }
@@ -453,7 +453,7 @@ internal fun BrickModeScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    CircularProgressIndicator(color = Color(0xFF668DFF))
+                    CircularProgressIndicator(color = TimeHudColors.action)
                 }
             }
         } else if (state.apps.isEmpty()) {
@@ -475,15 +475,15 @@ internal fun BrickModeScreen(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = Color(0xFF668DFF),
-                        focusedBorderColor = Color(0xFF668DFF),
-                        unfocusedBorderColor = Color(0xFF3A3A50),
-                        focusedLabelColor = Color(0xFFAEC2FF),
-                        unfocusedLabelColor = Color(0xFF9999B5),
-                        focusedPlaceholderColor = Color(0xFF66667A),
-                        unfocusedPlaceholderColor = Color(0xFF66667A)
+                        focusedTextColor = TimeHudColors.textPrimary,
+                        unfocusedTextColor = TimeHudColors.textPrimary,
+                        cursorColor = TimeHudColors.action,
+                        focusedBorderColor = TimeHudColors.action,
+                        unfocusedBorderColor = TimeHudColors.border,
+                        focusedLabelColor = TimeHudColors.textEmphasis,
+                        unfocusedLabelColor = TimeHudColors.textSecondary,
+                        focusedPlaceholderColor = TimeHudColors.textDisabled,
+                        unfocusedPlaceholderColor = TimeHudColors.textDisabled
                     )
                 )
             }
@@ -590,13 +590,13 @@ private fun UsageRestrictionModeSelector(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF171725))
+            .background(TimeHudColors.surface)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             text = stringResource(R.string.restriction_mode_selector_title),
-            color = Color.White,
+            color = TimeHudColors.textPrimary,
             fontWeight = FontWeight.SemiBold
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -616,13 +616,13 @@ private fun UsageRestrictionModeSelector(
                     UsageRestrictionMode.BRICK -> R.string.strict_brick_mode_description
                 }
             ),
-            color = Color(0xFF9999B5),
+            color = TimeHudColors.textSecondary,
             fontSize = 12.sp
         )
         if (!enabled) {
             Text(
                 text = stringResource(R.string.restriction_mode_change_when_off),
-                color = Color(0xFFF3C969),
+                color = TimeHudColors.statusWarning,
                 fontSize = 12.sp
             )
         }
@@ -662,7 +662,7 @@ private fun BrickModeStatusCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(if (activeMode != null) Color(0xFF18284A) else Color(0xFF171725))
+            .background(if (activeMode != null) TimeHudColors.surfaceSelected else TimeHudColors.surface)
             .padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -676,20 +676,20 @@ private fun BrickModeStatusCard(
                     activeMode != null -> stringResource(R.string.brick_mode_active, activeModeName)
                     else -> stringResource(R.string.brick_mode_inactive, configuredModeName)
                 },
-                color = Color.White,
+                color = TimeHudColors.textPrimary,
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = selectedCountText,
-                color = Color(0xFF9999B5),
+                color = TimeHudColors.textSecondary,
                 fontSize = 12.sp
             )
             if (remainingTimeText != null) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = stringResource(R.string.brick_mode_timer_remaining, remainingTimeText),
-                    color = Color(0xFF75D69C),
+                    color = TimeHudColors.statusPositive,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -718,13 +718,13 @@ private fun BrickModeTimerCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF171725))
+            .background(TimeHudColors.surface)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             text = stringResource(R.string.brick_mode_timer_title, modeName),
-            color = Color.White,
+            color = TimeHudColors.textPrimary,
             fontWeight = FontWeight.SemiBold
         )
         Text(
@@ -737,7 +737,7 @@ private fun BrickModeTimerCard(
                 enabled -> stringResource(R.string.brick_mode_timer_until_off, modeName)
                 else -> stringResource(R.string.brick_mode_timer_description, modeName)
             },
-            color = if (remainingTimeText != null) Color(0xFF75D69C) else Color(0xFF9999B5),
+            color = if (remainingTimeText != null) TimeHudColors.statusPositive else TimeHudColors.textSecondary,
             fontSize = 13.sp
         )
         OutlinedTextField(
@@ -763,13 +763,13 @@ private fun BrickModeTimerCard(
                 imeAction = ImeAction.Done
             ),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                cursorColor = Color(0xFF668DFF),
-                focusedBorderColor = Color(0xFF668DFF),
-                unfocusedBorderColor = Color(0xFF3A3A50),
-                focusedLabelColor = Color(0xFFAEC2FF),
-                unfocusedLabelColor = Color(0xFF9999B5)
+                focusedTextColor = TimeHudColors.textPrimary,
+                unfocusedTextColor = TimeHudColors.textPrimary,
+                cursorColor = TimeHudColors.action,
+                focusedBorderColor = TimeHudColors.action,
+                unfocusedBorderColor = TimeHudColors.border,
+                focusedLabelColor = TimeHudColors.textEmphasis,
+                unfocusedLabelColor = TimeHudColors.textSecondary
             )
         )
         Button(
@@ -797,7 +797,7 @@ private fun BrickModeSchedulesCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF171725))
+            .background(TimeHudColors.surface)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -809,12 +809,12 @@ private fun BrickModeSchedulesCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(R.string.brick_mode_schedules_title),
-                    color = Color.White,
+                    color = TimeHudColors.textPrimary,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
                     text = stringResource(R.string.brick_mode_schedules_description),
-                    color = Color(0xFF9999B5),
+                    color = TimeHudColors.textSecondary,
                     fontSize = 12.sp
                 )
             }
@@ -826,7 +826,7 @@ private fun BrickModeSchedulesCard(
         if (schedules.isEmpty()) {
             Text(
                 text = stringResource(R.string.brick_mode_schedules_empty),
-                color = Color(0xFF777790),
+                color = TimeHudColors.textDisabled,
                 fontSize = 13.sp
             )
         } else {
@@ -862,7 +862,7 @@ private fun BrickModeScheduleRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(if (active) Color(0xFF18284A) else Color(0xFF111120))
+            .background(if (active) TimeHudColors.surfaceSelected else TimeHudColors.background)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
@@ -880,14 +880,14 @@ private fun BrickModeScheduleRow(
                         startText,
                         durationText
                     ),
-                    color = Color.White,
+                    color = TimeHudColors.textPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium
                 )
                 if (active) {
                     Text(
                         text = stringResource(R.string.brick_mode_schedule_active_now),
-                        color = Color(0xFF75D69C),
+                        color = TimeHudColors.statusPositive,
                         fontSize = 11.sp
                     )
                 }
@@ -1024,7 +1024,7 @@ private fun AddBrickModeScheduleDialog(
                 if (hasError) {
                     Text(
                         text = stringResource(R.string.brick_mode_schedule_invalid),
-                        color = Color(0xFFFF8A80),
+                        color = TimeHudColors.statusDestructive,
                         fontSize = 12.sp
                     )
                 }
@@ -1100,14 +1100,14 @@ private fun BrickModeSectionHeader(
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
             text = title,
-            color = Color.White,
+            color = TimeHudColors.textPrimary,
             fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold
         )
         if (subtitle != null) {
             Text(
                 text = subtitle,
-                color = Color(0xFF9999B5),
+                color = TimeHudColors.textSecondary,
                 fontSize = 12.sp
             )
         }
@@ -1130,7 +1130,7 @@ private fun BrickModeAppRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF171725))
+            .background(TimeHudColors.surface)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1138,7 +1138,7 @@ private fun BrickModeAppRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = app.appName,
-                color = Color.White,
+                color = TimeHudColors.textPrimary,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1149,7 +1149,7 @@ private fun BrickModeAppRow(
                 } else {
                     app.packageName
                 },
-                color = if (app.alwaysAvailable) Color(0xFF75D69C) else Color(0xFF777790),
+                color = if (app.alwaysAvailable) TimeHudColors.statusPositive else TimeHudColors.textDisabled,
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1187,12 +1187,12 @@ private fun BrickModeMessageCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF171725))
+            .background(TimeHudColors.surface)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(title, color = Color.White, fontWeight = FontWeight.SemiBold)
-        Text(message, color = Color(0xFF9999B5), fontSize = 13.sp)
+        Text(title, color = TimeHudColors.textPrimary, fontWeight = FontWeight.SemiBold)
+        Text(message, color = TimeHudColors.textSecondary, fontSize = 13.sp)
         if (actionLabel != null && onAction != null) {
             Button(onClick = onAction) { Text(actionLabel) }
         }

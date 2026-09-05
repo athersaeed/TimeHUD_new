@@ -50,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +66,7 @@ import com.boringutils.timehud.ui.blocking.AppBlockingScreen
 import com.boringutils.timehud.ui.brick.BrickModeScreen
 import com.boringutils.timehud.ui.navigation.TimeHudDestination
 import com.boringutils.timehud.ui.navigation.TimeHudDrawerScaffold
+import com.boringutils.timehud.ui.theme.TimeHudColors
 import com.boringutils.timehud.ui.theme.TimeHUDTheme
 import com.boringutils.timehud.ui.usage.AppUsageScreen
 import kotlinx.coroutines.Dispatchers
@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
             TimeHUDTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0D0D1A)
+                    color = TimeHudColors.background
                 ) {
                     TimeHUDScreen(
                         onStartService = {
@@ -556,13 +556,18 @@ private fun GoalsPage(
         val primaryAction = serviceState.primaryAction
         val buttonColor by animateColorAsState(
             targetValue = if (primaryAction == ServicePrimaryAction.STOP) {
-                Color(0xFFCF4444)
+                TimeHudColors.surfaceSelected
             } else {
-                Color(0xFF4488FF)
+                TimeHudColors.action
             },
             animationSpec = tween(300),
             label = "btnColor"
         )
+        val buttonContentColor = if (primaryAction == ServicePrimaryAction.STOP) {
+            TimeHudColors.textPrimary
+        } else {
+            TimeHudColors.onAction
+        }
 
         Button(
             onClick = {
@@ -578,7 +583,8 @@ private fun GoalsPage(
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = buttonColor,
-                disabledContainerColor = Color(0xFF2A2A3A)
+                contentColor = buttonContentColor,
+                disabledContainerColor = TimeHudColors.disabledSurface
             )
         ) {
             Text(
@@ -589,9 +595,9 @@ private fun GoalsPage(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = if (serviceState.isRunning || allRequiredPermissionsGranted) {
-                    Color.White
+                    buttonContentColor
                 } else {
-                    Color(0xFF666680)
+                    TimeHudColors.textDisabled
                 }
             )
         }
@@ -601,7 +607,7 @@ private fun GoalsPage(
             Text(
                 text = stringResource(R.string.hud_permissions_needed),
                 fontSize = 12.sp,
-                color = Color(0xFF777794),
+                color = TimeHudColors.textDisabled,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -636,14 +642,14 @@ private fun PermissionsPage(
         Spacer(modifier = Modifier.height(20.dp))
         Text(
             text = stringResource(R.string.permissions_heading),
-            color = Color.White,
+            color = TimeHudColors.textPrimary,
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = stringResource(R.string.permissions_description),
-            color = Color(0xFF9999B5),
+            color = TimeHudColors.textSecondary,
             fontSize = 13.sp
         )
         Spacer(modifier = Modifier.height(22.dp))
@@ -686,9 +692,9 @@ private fun PermissionsPage(
                 }
             ),
             color = if (allRequiredPermissionsGranted) {
-                Color(0xFF69F0AE)
+                TimeHudColors.statusPositive
             } else {
-                Color(0xFFFFB0A8)
+                TimeHudColors.statusWarning
             },
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium
@@ -713,7 +719,7 @@ fun GoalSettingsPanel(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF151526))
+            .background(TimeHudColors.surface)
             .padding(16.dp)
     ) {
         Row(
@@ -725,19 +731,19 @@ fun GoalSettingsPanel(
                     text = "Goals",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.White
+                    color = TimeHudColors.textPrimary
                 )
                 Text(
                     text = "Shown on the 5 minute screen",
                     fontSize = 12.sp,
-                    color = Color(0xFF8888AA)
+                    color = TimeHudColors.textSecondary
                 )
             }
             Text(
                 text = if (saved) "Saved" else "Editable",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (saved) Color(0xFF69F0AE) else Color(0xFF9AB7FF)
+                color = if (saved) TimeHudColors.statusPositive else TimeHudColors.textEmphasis
             )
         }
 
@@ -761,7 +767,7 @@ fun GoalSettingsPanel(
                 .fillMaxWidth()
                 .height(44.dp),
             shape = RoundedCornerShape(8.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF9AB7FF))
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = TimeHudColors.textEmphasis)
         ) {
             Text(
                 text = if (calendarGranted) {
@@ -779,7 +785,7 @@ fun GoalSettingsPanel(
             Text(
                 text = status,
                 fontSize = 12.sp,
-                color = Color(0xFF8888AA)
+                color = TimeHudColors.textSecondary
             )
         }
 
@@ -803,7 +809,7 @@ fun GoalSettingsPanel(
                 .fillMaxWidth()
                 .height(44.dp),
             shape = RoundedCornerShape(8.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4488FF))
+            colors = ButtonDefaults.buttonColors(containerColor = TimeHudColors.action)
         ) {
             Text("Save Goals", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
@@ -812,19 +818,19 @@ fun GoalSettingsPanel(
 
 @Composable
 private fun timeHudTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedTextColor = Color.White,
-    unfocusedTextColor = Color.White,
-    focusedContainerColor = Color(0xFF111120),
-    unfocusedContainerColor = Color(0xFF111120),
-    focusedBorderColor = Color(0xFF4488FF),
-    unfocusedBorderColor = Color(0xFF343452),
-    focusedLabelColor = Color(0xFF9AB7FF),
-    unfocusedLabelColor = Color(0xFF8888AA),
-    cursorColor = Color(0xFF4488FF),
-    focusedPlaceholderColor = Color(0xFF666680),
-    unfocusedPlaceholderColor = Color(0xFF666680),
-    focusedSupportingTextColor = Color(0xFF8888AA),
-    unfocusedSupportingTextColor = Color(0xFF8888AA)
+    focusedTextColor = TimeHudColors.textPrimary,
+    unfocusedTextColor = TimeHudColors.textPrimary,
+    focusedContainerColor = TimeHudColors.background,
+    unfocusedContainerColor = TimeHudColors.background,
+    focusedBorderColor = TimeHudColors.action,
+    unfocusedBorderColor = TimeHudColors.border,
+    focusedLabelColor = TimeHudColors.textEmphasis,
+    unfocusedLabelColor = TimeHudColors.textSecondary,
+    cursorColor = TimeHudColors.action,
+    focusedPlaceholderColor = TimeHudColors.textDisabled,
+    unfocusedPlaceholderColor = TimeHudColors.textDisabled,
+    focusedSupportingTextColor = TimeHudColors.textSecondary,
+    unfocusedSupportingTextColor = TimeHudColors.textSecondary
 )
 
 @Composable
@@ -835,11 +841,11 @@ fun PermissionCard(
     onRequest: () -> Unit
 ) {
     val bgColor by animateColorAsState(
-        targetValue = if (granted) Color(0xFF1A2E1A) else Color(0xFF1A1A2E),
+        targetValue = if (granted) TimeHudColors.surfaceElevated else TimeHudColors.surface,
         animationSpec = tween(400),
         label = "cardBg"
     )
-    val accentColor = if (granted) Color(0xFF44CC66) else Color(0xFF6666AA)
+    val accentColor = if (granted) TimeHudColors.statusPositive else TimeHudColors.textEmphasis
 
     Row(
         modifier = Modifier
@@ -854,13 +860,13 @@ fun PermissionCard(
                 text = title,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color.White
+                color = TimeHudColors.textPrimary
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = description,
                 fontSize = 12.sp,
-                color = Color(0xFF8888AA)
+                color = TimeHudColors.textSecondary
             )
         }
         if (granted) {

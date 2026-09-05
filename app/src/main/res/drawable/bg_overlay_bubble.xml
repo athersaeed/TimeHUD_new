@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="#F0151824" />
+    <solid android:color="@color/graphite_bubble" />
     <stroke
         android:width="2dp"
-        android:color="#AA49E68D" />
+        android:color="@color/graphite_bubble_border" />
 </shape>

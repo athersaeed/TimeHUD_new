@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.boringutils.timehud.R
+import com.boringutils.timehud.ui.theme.TimeHudColors
 import kotlinx.coroutines.launch
 
 enum class TimeHudDestination(@param:StringRes val titleRes: Int) {
@@ -74,7 +75,7 @@ fun TimeHudDrawerScaffold(
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.widthIn(max = 320.dp),
-                drawerContainerColor = Color(0xFF111120)
+                drawerContainerColor = TimeHudColors.surface
             ) {
                 Column(
                     modifier = Modifier
@@ -89,14 +90,14 @@ fun TimeHudDrawerScaffold(
                     ) {
                         Text(
                             text = stringResource(R.string.app_name),
-                            color = Color.White,
+                            color = TimeHudColors.textPrimary,
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
                         )
                         Text(
                             text = stringResource(R.string.nav_subtitle),
-                            color = Color(0xFF8888AA),
+                            color = TimeHudColors.textSecondary,
                             fontSize = 12.sp
                         )
                     }
@@ -123,7 +124,7 @@ fun TimeHudDrawerScaffold(
                     )
 
                     Spacer(modifier = Modifier.weight(1f))
-                    HorizontalDivider(color = Color(0xFF2A2A3D))
+                    HorizontalDivider(color = TimeHudColors.borderSubtle)
                     Spacer(modifier = Modifier.height(8.dp))
                     DrawerItem(
                         destination = TimeHudDestination.PERMISSIONS,
@@ -138,7 +139,7 @@ fun TimeHudDrawerScaffold(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0D0D1A))
+                .background(TimeHudColors.background)
         ) {
             Row(
                 modifier = Modifier
@@ -151,7 +152,7 @@ fun TimeHudDrawerScaffold(
                 HamburgerButton(onClick = { coroutineScope.launch { drawerState.open() } })
                 Text(
                     text = stringResource(selectedDestination.titleRes),
-                    color = Color.White,
+                    color = TimeHudColors.textPrimary,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(start = 8.dp)
@@ -175,10 +176,10 @@ private fun DrawerItem(
         selected = destination == selectedDestination,
         onClick = onClick,
         colors = NavigationDrawerItemDefaults.colors(
-            selectedContainerColor = Color(0xFF26345F),
+            selectedContainerColor = TimeHudColors.surfaceSelected,
             unselectedContainerColor = Color.Transparent,
-            selectedTextColor = Color.White,
-            unselectedTextColor = Color(0xFFB0B0C4)
+            selectedTextColor = TimeHudColors.textPrimary,
+            unselectedTextColor = TimeHudColors.textSecondary
         ),
         modifier = Modifier.padding(vertical = 3.dp)
     )
@@ -197,7 +198,7 @@ private fun HamburgerButton(onClick: () -> Unit) {
                     modifier = Modifier
                         .width(22.dp)
                         .height(2.dp)
-                        .background(Color.White)
+                        .background(TimeHudColors.textPrimary)
                 )
             }
         }

@@ -3,7 +3,6 @@ package com.boringutils.timehud
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.res.ColorStateList
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
@@ -65,9 +64,15 @@ internal class ActiveOverlayContentController(
         button.text = context.getString(
             if (enabled) R.string.active_close else R.string.active_close_delayed
         )
-        button.setTextColor(if (enabled) Color.WHITE else Color.rgb(170, 170, 170))
+        button.setTextColor(
+            context.getColor(
+                if (enabled) R.color.graphite_background else R.color.graphite_text_disabled
+            )
+        )
         button.backgroundTintList = ColorStateList.valueOf(
-            if (enabled) Color.rgb(68, 136, 255) else Color.rgb(68, 68, 79)
+            context.getColor(
+                if (enabled) R.color.graphite_text_primary else R.color.graphite_disabled_surface
+            )
         )
     }
 
@@ -106,7 +111,13 @@ internal class ActiveOverlayContentController(
             isClickable = true
             isFocusable = true
             background = makeRoundedBackground(
-                if (completed) Color.rgb(26, 46, 34) else Color.rgb(17, 17, 32),
+                context.getColor(
+                    if (completed) {
+                        R.color.graphite_surface_elevated
+                    } else {
+                        R.color.graphite_surface
+                    }
+                ),
                 8
             )
             setPadding(dp(8), dp(8), dp(12), dp(8))
@@ -125,7 +136,10 @@ internal class ActiveOverlayContentController(
             isFocusable = false
             buttonTintList = ColorStateList(
                 arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-                intArrayOf(Color.rgb(105, 240, 174), Color.rgb(154, 160, 184))
+                intArrayOf(
+                    context.getColor(R.color.graphite_text_primary),
+                    context.getColor(R.color.graphite_text_secondary)
+                )
             )
         }
         row.addView(
@@ -139,7 +153,15 @@ internal class ActiveOverlayContentController(
         val taskText = TextView(context).apply {
             text = goalText
             textSize = 17f
-            setTextColor(if (completed) Color.rgb(154, 190, 166) else Color.rgb(236, 238, 255))
+            setTextColor(
+                context.getColor(
+                    if (completed) {
+                        R.color.graphite_text_secondary
+                    } else {
+                        R.color.graphite_text_primary
+                    }
+                )
+            )
             if (completed) {
                 paintFlags = paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
                 alpha = 0.78f
@@ -164,7 +186,7 @@ internal class ActiveOverlayContentController(
     private fun createEmptyGoalsView(): View = TextView(context).apply {
         text = context.getString(R.string.active_no_goals)
         textSize = 18f
-        setTextColor(Color.rgb(236, 238, 255))
+        setTextColor(context.getColor(R.color.graphite_text_primary))
         setPadding(dp(6), dp(6), dp(6), dp(6))
     }
 
@@ -274,10 +296,10 @@ internal class ActiveOverlayContentController(
                 96 to 8
             )
             val colors = intArrayOf(
-                Color.rgb(105, 240, 174),
-                Color.rgb(154, 183, 255),
-                Color.rgb(255, 179, 102),
-                Color.rgb(255, 107, 107)
+                context.getColor(R.color.graphite_text_primary),
+                context.getColor(R.color.graphite_text_emphasis),
+                context.getColor(R.color.graphite_text_secondary),
+                context.getColor(R.color.graphite_text_disabled)
             )
 
             offsets.forEachIndexed { index, offset ->

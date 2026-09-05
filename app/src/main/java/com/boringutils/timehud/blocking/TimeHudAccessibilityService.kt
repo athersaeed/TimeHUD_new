@@ -2,7 +2,6 @@ package com.boringutils.timehud.blocking
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
-import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
@@ -573,7 +572,7 @@ private class BlockingOverlayController(
         }
 
         return FrameLayout(service).apply {
-            setBackgroundColor(Color.argb(238, 13, 13, 26))
+            setBackgroundColor(service.getColor(R.color.graphite_overlay_background))
             contentDescription = service.getString(R.string.blocking_overlay_content_description)
             isClickable = true
             setOnTouchListener { view, event ->

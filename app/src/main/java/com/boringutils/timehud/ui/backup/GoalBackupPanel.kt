@@ -18,12 +18,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.boringutils.timehud.R
+import com.boringutils.timehud.ui.theme.TimeHudColors
 
 @Composable
 fun GoalBackupPanel(
@@ -37,19 +37,19 @@ fun GoalBackupPanel(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF151526))
+            .background(TimeHudColors.surface)
             .padding(16.dp)
     ) {
         Text(
             text = stringResource(R.string.goal_backup_title),
             fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White
+            color = TimeHudColors.textPrimary
         )
         Text(
             text = stringResource(R.string.goal_backup_description),
             fontSize = 12.sp,
-            color = Color(0xFF8888AA)
+            color = TimeHudColors.textSecondary
         )
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -65,7 +65,7 @@ fun GoalBackupPanel(
                     .weight(1f)
                     .height(44.dp),
                 shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF9AB7FF))
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TimeHudColors.textEmphasis)
             ) {
                 Text(stringResource(R.string.goal_backup_export), fontSize = 13.sp)
             }
@@ -76,7 +76,7 @@ fun GoalBackupPanel(
                     .weight(1f)
                     .height(44.dp),
                 shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF9AB7FF))
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TimeHudColors.textEmphasis)
             ) {
                 Text(stringResource(R.string.goal_backup_import), fontSize = 13.sp)
             }
@@ -88,9 +88,9 @@ fun GoalBackupPanel(
                 text = stringResource(messageRes),
                 fontSize = 12.sp,
                 color = when (statusIsError) {
-                    true -> Color(0xFFFF8A80)
-                    false -> Color(0xFF69F0AE)
-                    null -> Color(0xFF9AB7FF)
+                    true -> TimeHudColors.statusDestructive
+                    false -> TimeHudColors.statusPositive
+                    null -> TimeHudColors.textEmphasis
                 }
             )
         }

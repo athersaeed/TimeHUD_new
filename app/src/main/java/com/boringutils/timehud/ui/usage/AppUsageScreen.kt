@@ -31,7 +31,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -46,6 +45,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.boringutils.timehud.R
+import com.boringutils.timehud.ui.theme.TimeHudColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -163,7 +163,7 @@ internal fun AppUsageScreen(
                 item {
                     Text(
                         text = stringResource(R.string.app_usage_top_apps),
-                        color = Color.White,
+                        color = TimeHudColors.textPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -172,7 +172,7 @@ internal fun AppUsageScreen(
                 item {
                     Text(
                         text = stringResource(R.string.app_usage_all_apps),
-                        color = Color.White,
+                        color = TimeHudColors.textPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(top = 4.dp)
@@ -201,13 +201,13 @@ private fun AppUsageHeader(isRefreshing: Boolean, onRefresh: () -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = stringResource(R.string.app_usage_heading),
-                color = Color.White,
+                color = TimeHudColors.textPrimary,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold
             )
             Text(
                 text = stringResource(R.string.app_usage_period),
-                color = Color(0xFF8888AA),
+                color = TimeHudColors.textSecondary,
                 fontSize = 13.sp
             )
         }
@@ -224,10 +224,10 @@ private fun LoadingUsageCard() {
             .fillMaxWidth()
             .height(180.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF151526)),
+            .background(TimeHudColors.surface),
         contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator(color = Color(0xFF668DFF))
+        CircularProgressIndicator(color = TimeHudColors.action)
     }
 }
 
@@ -242,17 +242,17 @@ private fun UsageMessageCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF151526))
+            .background(TimeHudColors.surface)
             .padding(20.dp)
     ) {
-        Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, color = TimeHudColors.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(6.dp))
-        Text(message, color = Color(0xFF9999B5), fontSize = 13.sp)
+        Text(message, color = TimeHudColors.textSecondary, fontSize = 13.sp)
         if (actionLabel != null && onAction != null) {
             Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = onAction,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4488FF))
+                colors = ButtonDefaults.buttonColors(containerColor = TimeHudColors.action)
             ) {
                 Text(actionLabel)
             }
@@ -267,18 +267,18 @@ private fun AppUsageSummary(entries: List<AppUsageEntry>) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF151526))
+            .background(TimeHudColors.surface)
             .padding(18.dp)
     ) {
         Text(
             text = formatAppUsageDuration(totalDuration),
-            color = Color.White,
+            color = TimeHudColors.textPrimary,
             fontSize = 32.sp,
             fontWeight = FontWeight.Bold
         )
         Text(
             text = stringResource(R.string.app_usage_total, entries.size),
-            color = Color(0xFF8888AA),
+            color = TimeHudColors.textSecondary,
             fontSize = 13.sp
         )
     }
@@ -291,7 +291,7 @@ private fun AppUsageChart(entries: List<AppUsageEntry>) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF151526))
+            .background(TimeHudColors.surface)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -301,14 +301,14 @@ private fun AppUsageChart(entries: List<AppUsageEntry>) {
                     Text(
                         text = entry.appName,
                         modifier = Modifier.weight(1f),
-                        color = Color.White,
+                        color = TimeHudColors.textPrimary,
                         fontSize = 14.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = formatAppUsageDuration(entry.durationMs),
-                        color = Color(0xFFAEC2FF),
+                        color = TimeHudColors.textEmphasis,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -332,7 +332,7 @@ private fun AppUsageRow(entry: AppUsageEntry, longestDurationMs: Long) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xFF151526))
+            .background(TimeHudColors.surface)
             .padding(16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -340,12 +340,12 @@ private fun AppUsageRow(entry: AppUsageEntry, longestDurationMs: Long) {
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFF28335C)),
+                    .background(TimeHudColors.surfaceSelected),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = entry.appName.firstOrNull()?.uppercase() ?: "?",
-                    color = Color(0xFFAEC2FF),
+                    color = TimeHudColors.textEmphasis,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -353,7 +353,7 @@ private fun AppUsageRow(entry: AppUsageEntry, longestDurationMs: Long) {
             Text(
                 text = entry.appName,
                 modifier = Modifier.weight(1f),
-                color = Color.White,
+                color = TimeHudColors.textPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -361,7 +361,7 @@ private fun AppUsageRow(entry: AppUsageEntry, longestDurationMs: Long) {
             )
             Text(
                 text = formatAppUsageDuration(entry.durationMs),
-                color = Color.White,
+                color = TimeHudColors.textPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -386,7 +386,7 @@ private fun UsageBar(fraction: Float, description: String) {
             .fillMaxWidth()
             .height(8.dp)
             .clip(RoundedCornerShape(4.dp))
-            .background(Color(0xFF29293D))
+            .background(TimeHudColors.surfaceElevated)
             .semantics { contentDescription = description }
     ) {
         Box(
@@ -394,7 +394,7 @@ private fun UsageBar(fraction: Float, description: String) {
                 .fillMaxWidth(fraction.coerceAtLeast(MIN_VISIBLE_BAR_FRACTION))
                 .height(8.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .background(Color(0xFF668DFF))
+                .background(TimeHudColors.action)
         )
     }
 }
