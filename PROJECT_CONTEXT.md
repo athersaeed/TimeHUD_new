@@ -508,17 +508,19 @@ Other platform usage:
 
 No ktlint, detekt, Spotless, or other formatting task is configured. In a restricted environment where the home Gradle cache is not writable, the audit successfully used `./gradlew --gradle-user-home .gradle-work <tasks>`; normal developer machines should use the default Gradle user home.
 
-### Intentional debug-update APK hook
+### Automatic debug-update APK hook
 
-The repository includes a version-controlled `post-commit` hook for intentionally producing a fresh, locally installable debug update. Enable it once in this checkout with:
+The repository includes a version-controlled `post-commit` hook that produces a fresh, locally installable debug update after every successful commit. Enable it once in this checkout with:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-A commit whose message contains the exact marker `[apk]`, for example `git commit -m "Add weekly usage graph [apk]"`, runs `scripts/build-debug-update.sh`. The script runs the JVM unit tests, forces a fresh `assembleDebug`, reads `versionName` from `app/build.gradle.kts`, and copies the result to `app/release/TimeHUD-v<version>-debug-update.apk`. APK files remain ignored by Git. Commits without `[apk]` do not run the build.
+Every successful commit runs `scripts/build-debug-update.sh`, regardless of its commit message. The script runs the JVM unit tests, forces a fresh `assembleDebug`, reads `versionName` from `app/build.gradle.kts`, and copies the result to `app/release/TimeHUD-v<version>-debug-update.apk`. It then transfers that version-derived filename over SCP port `8022` to `u0_a320@100.124.117.126:storage/downloads/`, and verifies that the phone and local SHA-256 values match. APK files remain ignored by Git.
 
-The debug APK uses the local Android debug certificate and is intended only for direct testing updates on devices that already have a matching debug-signed build. It is not a Play Store release artifact. A failing post-commit build does not undo the commit that triggered it; fix the reported error and run `scripts/build-debug-update.sh` directly to retry.
+The debug APK uses the local Android debug certificate and is intended only for direct testing updates on devices that already have a matching debug-signed build. It is not a Play Store release artifact. A failing build, SCP transfer, or hash check does not undo the commit that triggered it; fix the reported error and run `scripts/build-debug-update.sh` directly to retry. The Android device must be reachable at the configured address with its SSH server listening on port `8022` and passwordless key authentication available.
+
+For unattended post-commit transfers, install this PC's existing default SSH public key on the Termux SSH server once with `ssh-copy-id -p 8022 u0_a320@100.124.117.126`. That one-time command prompts for the phone's SSH password; subsequent hook-driven `scp` commands should authenticate with the key instead of waiting for a password.
 
 ## 14. Build variants and release process
 
