@@ -21,7 +21,6 @@ import com.boringutils.timehud.ActiveOverlayContentController
 import com.boringutils.timehud.ActiveOverlayTrigger
 import com.boringutils.timehud.BlockingOverlayStateStore
 import com.boringutils.timehud.R
-import com.boringutils.timehud.ScreenTimeDisplay
 import com.boringutils.timehud.createTimeHudDestinationIntent
 import com.boringutils.timehud.ui.navigation.TimeHudDestination
 import com.boringutils.timehud.ui.usage.AppUsageLoadResult
@@ -563,7 +562,7 @@ private class BlockingOverlayController(
                     context = service,
                     handler = Handler(Looper.getMainLooper()),
                     rootView = this,
-                    timeText = ScreenTimeDisplay.current(service),
+                    timeText = null,
                     requiresCloseDelay = ActiveOverlayTrigger.APP_BLOCK.requiresCloseDelay,
                     onClose = onClose,
                     onOpenBrickMode = onOpenBrickMode

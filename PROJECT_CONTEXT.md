@@ -163,7 +163,7 @@ OverlayService lifecycle
 - Goal backup schema validation/serialization and one-time URI stream handling live in `GoalBackup.kt`; picker and confirmation state remain in `TimeHUDScreen`.
 - There is no generalized app-wide loading/error model. Goal backup uses typed parse/read/write results, and calendar uses a typed available/permission-required/unavailable result plus Goals-page loading/empty states. Other older goal/service flows remain mostly synchronous and ad hoc.
 - Calendar query `SecurityException`, `IllegalArgumentException`, and null-provider results become `Unavailable`, distinct from an available empty event list. The active overlay hides unavailable agenda data while the Goals page offers Refresh.
-- Backup document/JSON work, per-app usage-history queries, and calendar-provider queries run on `Dispatchers.IO`. The service's total screen-time aggregation still runs on the main thread; the service `Handler` also drives UI ticks and animation delays.
+- Backup document/JSON work, per-app usage-history queries, and calendar-provider queries run on `Dispatchers.IO`. HUD screen-time queries run on `Dispatchers.IO` in a service-owned coroutine, with serial ten-second polling and cancellation on destruction. The service `Handler` drives delayed overlay UI work.
 
 ## 4. Directory and module map
 
@@ -384,9 +384,10 @@ Schema:
 
 ### Usage data
 
-- `queryScreenTimeMs()` reads `UsageStatsManager.queryEvents()` from the most recent 3:00 AM boundary, looking for numeric event types 15 and 16 (screen interactive/non-interactive), and uses `PowerManager.isInteractive` for an empty/current interval edge case (`OverlayService.kt:542-593`).
-- There is no caching; the entire period is queried again every 10 seconds on the main thread.
-- There is no structured error mapping, retry policy, telemetry, or test coverage for this algorithm.
+- `ScreenTimeDisplay.queryMs()` reads usage events from the shared 3:00 AM boundary on a worker dispatcher. `ScreenTimeCalculator` streams screen-interactive/non-interactive transitions, preserves open intervals across duplicate events, and uses current power state only when no screen transitions were returned.
+- The HUD polls serially every ten seconds after each query completes and caches the latest formatted reading for taps and window attachment. A provider failure preserves the previous reading and retries on the next poll; before the first successful result it shows an ellipsis. Service destruction cancels the polling job.
+- Blocked-app check-ins load screen time asynchronously through their content controller and cancel delivery when disposed. App usage continues to query on its existing worker dispatcher.
+- Eight JVM regressions cover duplicate transitions, open intervals, empty history, daily range filtering, repeated reads, and invalid ranges. Missing platform history and OEM event behavior still require device validation.
 - The App usage page separately reads per-package foreground/background events from the most recent 3:00 AM boundary on `Dispatchers.IO`. Its headline uses the same interactive-screen-time query as the HUD bubble so overlapping package intervals cannot inflate the displayed total. The per-app chart and rows still total intervals per package, resolve an application label when Android permits it, sort by duration descending, and fall back to the package name when a label is unavailable.
 - Per-app results are refreshed on page entry/resume or by the Refresh button and are not persisted. The screen models permission-required, loading, empty, unavailable, and success states; pure aggregation/boundary/formatting behavior has JVM tests.
 
@@ -674,7 +675,7 @@ The most important untested behavior is also the most failure-prone: total scree
 
 ### Known behavioral issues supported by code
 
-- If the service removes a goal while `MainActivity` remains alive behind the overlay, the activity's independent saved editor state is not refreshed; a later Save/Start can restore the removed line.
+- Save/Start reconciles each goal draft against its saved baseline and the current preferences. Overlay deletions are applied without discarding unrelated draft additions or rewritten lines; duplicate removals are count-aware. The baseline survives activity recreation and resets after save/import. The editor can still show the old line until Save/Start.
 - Older saved text can still contain a reserved `Calendar Today` section. It is no longer parsed into checklist rows; the Goals page exposes an explicit cleanup action because automatically deleting everything after that legacy marker could discard later manual edits.
 - Restarting the service after five minutes of accumulated usage can immediately open the active overlay because the last bucket is not persisted.
 - Goal normalization can make visually different goals share one completion key.
@@ -723,12 +724,12 @@ Future work on screen-time behavior should read `OverlayService.kt`, `AndroidMan
 | **Medium** | API 24-28 permission fallback lacks device coverage | Both permission checks use the compatible `checkOpNoThrow()` path below API 29, but this branch has only static/lint verification in this workspace. |
 | **High** | Selective app recognition and Samsung window layering need device validation | YouTube, Instagram, Facebook, Snapchat, and X view identifiers/content descriptions plus Samsung AccessibilityWindowInfo layers can change by app, language, One UI, and Android version. Pure classification and geometry tests cannot prove live section recognition or pop-up z-order. |
 | **High** | No production signing/release process | Release APK is unsigned; no keystore indirection, CI, store configuration, or release checklist exists. Production delivery is not reproducible. |
-| **High** | Main-thread period-wide usage query | Every 10 seconds, `ScreenTimeDisplay.queryMs()` scans usage events from 3:00 AM on the main looper; a newly attached blocked-app check-in also reads it once. Large histories or slow providers can delay overlay UI/service responsiveness and risk ANRs. |
+| **Low** | Period-wide usage query cost | Queries still scan the day, but run off the UI thread with serial polling. Very large histories can delay the next timer refresh. |
 | **High** | Sensitive platform capabilities lack production/privacy hardening | Always-on-top UI, usage history, calendar data, boot restart, and special-use foreground service have no onboarding rationale, privacy policy/store declaration, or denial/revocation recovery in repo. This is a policy and trust risk. |
-| **Medium** | Overlay failures are not contained | `WindowManager.addView()` and service startup have no `SecurityException`/bad-token handling. Permission revocation or vendor behavior can crash the service instead of showing recovery UI. |
-| **Medium** | Screen-time correctness is unverified | The algorithm uses raw event IDs, inferred period-start state, a 3:00 AM boundary, and no tests. Changes can easily double-count/miss intervals. |
+| **Medium** | Platform startup still needs device validation | HUD window attach/update failures now dispose overlays, clear active state and stop the service. Android foreground-service startup restrictions and vendor behavior still need device validation. |
+| **Medium** | Platform screen-history completeness | Pure aggregation has regression coverage, but period-start state remains inferred from available events and empty-history power state. OEM history omissions cannot be reconstructed reliably. |
 | **Medium** | Notification permission not requested | `POST_NOTIFICATIONS` is declared but no runtime flow or denial state exists, reducing foreground-service transparency on recent Android versions. |
-| **Medium** | Activity/service goal state can diverge | Activity editor is a saved local copy; service removal writes preferences independently. A stale activity save can resurrect deleted data. |
+| **Low** | Goal editor refresh is deferred | Save/Start now reconciles overlay removals with draft edits. The editor does not live-refresh when an overlay removes a goal. |
 | **Medium** | Non-goal local data can be lost | Manual JSON backup now protects goal text when the user exports it, but `allowBackup=false` and no automatic backup/sync mean completion/startup state and unexported changes are still lost on uninstall/clear-data by design. |
 | **Medium** | Compose dependency alignment is surprising | BOM `2024.09.00` constrains UI `1.7.0`, but resolved UI is `1.9.2` while Material 3 is `1.3.0`. Builds pass, but future dependency changes can expose binary/UI incompatibility. |
 | **Medium** | Active overlay accessibility/responsiveness | Non-focusable full-screen window, fixed 74sp timer/top content, untranslated hardcoded strings, left/right layout attributes, and lint keyboard warning can break large-font, keyboard/switch, RTL, or small-screen use. |
@@ -771,7 +772,7 @@ Do not treat this list as work already completed.
 ### Critical fixes
 
 1. Exercise the guarded usage-access check on API 24/28/29+ devices and add regression coverage for both platform branches.
-2. Move usage-event queries off the main thread and isolate/test the screen-time state machine, including 3:00 AM, first-event, currently interactive, restart, and bucket-boundary cases.
+2. Device-test the worker-based screen-time queries, including 3:00 AM, missing history, restart and bucket boundaries. Pure transition aggregation is covered by JVM regressions.
 3. Catch overlay/service permission failures and provide a recovery path when special access is revoked while running.
 4. Define a production signing and secret-management process; do not distribute unsigned release artifacts.
 

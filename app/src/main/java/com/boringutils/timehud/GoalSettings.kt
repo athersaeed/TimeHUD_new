@@ -114,3 +114,25 @@ object GoalText {
 }
 
 private fun String.toGoalItems(): List<String> = GoalText.toGoalItems(this)
+
+/** Preserve draft edits while applying lines removed by the overlay since editing began. */
+internal fun reconcileRemovedGoals(baseline: String, draft: String, persisted: String): String {
+    if (draft == baseline) return persisted
+    if (persisted == baseline) return draft
+    val remaining = persisted.lines().groupingBy { it.trim() }.eachCount().toMutableMap()
+    val removed = mutableMapOf<String, Int>()
+    baseline.lines().forEach { line ->
+        val key = line.trim()
+        val count = remaining[key] ?: 0
+        if (count > 0) remaining[key] = count - 1
+        else if (key.isNotEmpty()) removed[key] = (removed[key] ?: 0) + 1
+    }
+    return draft.lines().filter { line ->
+        val key = line.trim()
+        val count = removed[key] ?: 0
+        if (count > 0) {
+            removed[key] = count - 1
+            false
+        } else true
+    }.joinToString("\n")
+}

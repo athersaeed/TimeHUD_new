@@ -287,10 +287,10 @@ Preserve these unless the request explicitly changes them.
 
 These were confirmed in the 2026-07-11 audit. Treat them as context, not automatic scope. Verify the current source before relying on them because later changes may have fixed them.
 
-- Usage-access checks in `MainActivity.kt` and `BootReceiver.kt` call API-29 `unsafeCheckOpNoThrow()` while min SDK is 24; the baseline `lintDebug` therefore fails and API 24-28 are unsafe.
-- Usage-history aggregation runs synchronously on the main thread.
+- Usage-access checks now use a guarded API-29 call and the legacy fallback below API 29; lower-API device validation is still needed.
+- Screen-time queries run on worker dispatchers; platform history completeness still needs device validation.
 - `POST_NOTIFICATIONS` is declared but has no runtime permission flow.
-- Activity goal-editor state and service-side goal removal can diverge; a later activity save can restore a removed goal.
+- Goal editors reconcile service-side removals on Save/Start while preserving draft edits; they do not live-refresh after overlay deletions.
 - Restarting the service can immediately show the active overlay because the last triggered bucket is not persisted.
 - Release output is unsigned; production signing, CI release automation, store metadata, privacy documentation, analytics, and crash reporting are absent.
 - The app uses privacy-sensitive capabilities: overlay access, usage history, calendar read access, boot restart, notifications, and a special-use foreground service.

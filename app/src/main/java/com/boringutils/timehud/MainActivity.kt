@@ -231,6 +231,8 @@ fun TimeHUDScreen(
     val initialGoalConfig = remember { GoalSettings.load(context) }
     var shortTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.shortTermGoals) }
     var longTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.longTermGoals) }
+    var savedShortTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.shortTermGoals) }
+    var savedLongTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.longTermGoals) }
     var goalsSaved by rememberSaveable { mutableStateOf(false) }
     var calendarAgendaUiState by remember {
         mutableStateOf<CalendarAgendaUiState>(
@@ -400,11 +402,19 @@ fun TimeHUDScreen(
     }
 
     fun saveGoalSettings() {
+        val persisted = GoalSettings.load(context)
+        shortTermGoals = reconcileRemovedGoals(savedShortTermGoals, shortTermGoals, persisted.shortTermGoals)
+        longTermGoals = reconcileRemovedGoals(savedLongTermGoals, longTermGoals, persisted.longTermGoals)
         GoalSettings.save(
             context = context,
             shortTermGoals = shortTermGoals,
             longTermGoals = longTermGoals
         )
+        val saved = GoalSettings.load(context)
+        shortTermGoals = saved.shortTermGoals
+        longTermGoals = saved.longTermGoals
+        savedShortTermGoals = saved.shortTermGoals
+        savedLongTermGoals = saved.longTermGoals
         goalsSaved = true
         clearBackupStatus()
     }
@@ -521,6 +531,8 @@ fun TimeHUDScreen(
                 )
                 shortTermGoals = importedBackup.shortTermGoalText
                 longTermGoals = importedBackup.longTermGoalText
+                savedShortTermGoals = importedBackup.shortTermGoalText
+                savedLongTermGoals = importedBackup.longTermGoalText
                 goalsSaved = true
                 clearPendingImport()
                 showBackupStatus(R.string.goal_backup_import_success, isError = false)

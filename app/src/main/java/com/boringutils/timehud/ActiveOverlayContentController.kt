@@ -1,6 +1,5 @@
 package com.boringutils.timehud
 
-import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Paint
@@ -14,7 +13,6 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
-import java.util.Calendar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,7 +24,7 @@ internal class ActiveOverlayContentController(
     private val context: Context,
     private val handler: Handler,
     private val rootView: View,
-    timeText: String,
+    timeText: String?,
     requiresCloseDelay: Boolean,
     private val onClose: () -> Unit,
     private val onOpenBrickMode: () -> Unit
@@ -42,7 +40,19 @@ internal class ActiveOverlayContentController(
     }
 
     init {
-        rootView.findViewById<TextView>(R.id.tv_time)?.text = timeText
+        rootView.findViewById<TextView>(R.id.tv_time)?.text = timeText ?: "…"
+        if (timeText == null) {
+            agendaScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    try {
+                        ScreenTimeDisplay.current(context)
+                    } catch (_: RuntimeException) {
+                        null
+                    }
+                }
+                result?.let { rootView.findViewById<TextView>(R.id.tv_time)?.text = it }
+            }
+        }
         loadAgenda()
         updateGoals()
         rootView.findViewById<Switch>(R.id.switch_goal_mode)
@@ -391,68 +401,5 @@ internal class ActiveOverlayContentController(
 
     private companion object {
         const val ACTIVE_CLOSE_DELAY_MS = 5_000L
-    }
-}
-
-internal object ScreenTimeDisplay {
-    fun current(context: Context): String = format(queryMs(context))
-
-    fun format(ms: Long): String {
-        val totalMinutes = ms / 60_000
-        val hours = totalMinutes / 60
-        val minutes = totalMinutes % 60
-        return "${hours}h${minutes}m"
-    }
-
-    fun queryMs(
-        context: Context,
-        nowMs: Long = System.currentTimeMillis()
-    ): Long {
-        val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE)
-            as? UsageStatsManager ?: return 0L
-        val powerManager = context.getSystemService(Context.POWER_SERVICE)
-            as? android.os.PowerManager ?: return 0L
-
-        val calendar = Calendar.getInstance().apply { timeInMillis = nowMs }
-        if (calendar.get(Calendar.HOUR_OF_DAY) < 3) {
-            calendar.add(Calendar.DAY_OF_YEAR, -1)
-        }
-        calendar.set(Calendar.HOUR_OF_DAY, 3)
-        calendar.set(Calendar.MINUTE, 0)
-        calendar.set(Calendar.SECOND, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-
-        val startOfPeriod = calendar.timeInMillis
-        val events = usageStatsManager.queryEvents(startOfPeriod, nowMs)
-        var totalScreenTime = 0L
-        var lastInteractiveTime = 0L
-        var firstEvent = true
-
-        val event = android.app.usage.UsageEvents.Event()
-        while (events.hasNextEvent()) {
-            events.getNextEvent(event)
-            if (event.eventType != 15 && event.eventType != 16) continue
-
-            if (firstEvent) {
-                if (event.eventType == 16) {
-                    totalScreenTime += event.timeStamp - startOfPeriod
-                }
-                firstEvent = false
-            }
-
-            if (event.eventType == 15) {
-                lastInteractiveTime = event.timeStamp
-            } else if (event.eventType == 16 && lastInteractiveTime > 0) {
-                totalScreenTime += event.timeStamp - lastInteractiveTime
-                lastInteractiveTime = 0L
-            }
-        }
-
-        if (lastInteractiveTime > 0) {
-            totalScreenTime += nowMs - lastInteractiveTime
-        } else if (firstEvent && powerManager.isInteractive) {
-            totalScreenTime += nowMs - startOfPeriod
-        }
-        return totalScreenTime
     }
 }

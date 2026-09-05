@@ -25,8 +25,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal enum class ActiveOverlayTrigger(
     val requiresCloseDelay: Boolean,
@@ -63,6 +66,8 @@ class OverlayService : Service() {
     private var isActiveState = false
     private var isBlockingOverlayVisible = false
     private var lastTriggeredBucket: Long = -1L
+    private var latestTimeText: String = "…"
+    private var overlayFailed = false
 
     override fun onCreate() {
         super.onCreate()
@@ -77,10 +82,24 @@ class OverlayService : Service() {
             BlockingOverlayStateStore.isVisible.collect(::handleBlockingOverlayVisibility)
         }
         showPassiveOverlay()
-        handler.post(tickRunnable)
+        serviceScope.launch {
+            while (isActive && !overlayFailed) {
+                val totalMs = withContext(Dispatchers.IO) {
+                    try {
+                        ScreenTimeDisplay.queryMs(this@OverlayService)
+                    } catch (_: RuntimeException) {
+                        null
+                    }
+                }
+                // Keep the last successful reading on provider failure.
+                if (!overlayFailed) totalMs?.let(::updateScreenTime)
+                delay(TICK_INTERVAL_MS)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (overlayFailed) return START_NOT_STICKY
         StartupPreferences.markHudRunning(this)
         OverlayServiceStateStore.markRunning()
         refreshNotification(getString(R.string.notif_text))
@@ -163,7 +182,7 @@ class OverlayService : Service() {
     }
 
     private fun showPassiveOverlay() {
-        if (passiveView != null || isBlockingOverlayVisible) return
+        if (passiveView != null || isBlockingOverlayVisible || overlayFailed) return
         val inflater = LayoutInflater.from(this)
         val view = inflater.inflate(R.layout.overlay_passive, null)
         val params = makeBubbleLayoutParams()
@@ -182,7 +201,7 @@ class OverlayService : Service() {
         passiveView = view
         updateBubbleText(view, getFormattedScreenTime())
         attachBubbleTouchListener(view, params)
-        windowManager.addView(view, params)
+        attachOverlay(view, params)
     }
 
     private fun attachBubbleTouchListener(view: View, params: WindowManager.LayoutParams) {
@@ -231,7 +250,11 @@ class OverlayService : Service() {
                         params.x = position.x
                         params.y = position.y
                         if (passiveView === view) {
-                            windowManager.updateViewLayout(view, params)
+                            try {
+                                windowManager.updateViewLayout(view, params)
+                            } catch (_: RuntimeException) {
+                                stopAfterOverlayFailure()
+                            }
                         }
                     }
                     true
@@ -281,7 +304,7 @@ class OverlayService : Service() {
     }
 
     private fun showActiveOverlay(timeText: String, trigger: ActiveOverlayTrigger) {
-        if (isActiveState) return
+        if (isActiveState || isBlockingOverlayVisible || overlayFailed) return
         isActiveState = true
 
         removeOverlay(passiveView)
@@ -316,7 +339,7 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
-        windowManager.addView(activeView, params)
+        activeView?.let { attachOverlay(it, params) }
     }
 
     private fun dismissActiveOverlay() {
@@ -353,26 +376,37 @@ class OverlayService : Service() {
         }
     }
 
-    private val tickRunnable: Runnable = object : Runnable {
-        override fun run() {
-            val totalMs = ScreenTimeDisplay.queryMs(this@OverlayService)
-            val text = ScreenTimeDisplay.format(totalMs)
-
-            if (!isActiveState) {
-                updatePassiveText(text)
-            }
-
-            val currentBucket = totalMs / FIVE_MINUTES_MS
-            if (currentBucket > 0 && currentBucket != lastTriggeredBucket) {
-                lastTriggeredBucket = currentBucket
-                showActiveOverlay(
-                    timeText = text,
-                    trigger = ActiveOverlayTrigger.FIVE_MINUTE_BUCKET
-                )
-            }
-
-            handler.postDelayed(this, TICK_INTERVAL_MS)
+    private fun updateScreenTime(totalMs: Long) {
+        latestTimeText = ScreenTimeDisplay.format(totalMs)
+        if (!isActiveState) updatePassiveText(latestTimeText)
+        val currentBucket = totalMs / FIVE_MINUTES_MS
+        if (currentBucket > 0 && currentBucket != lastTriggeredBucket) {
+            lastTriggeredBucket = currentBucket
+            showActiveOverlay(latestTimeText, ActiveOverlayTrigger.FIVE_MINUTE_BUCKET)
         }
+    }
+
+    private fun attachOverlay(view: View, params: WindowManager.LayoutParams) {
+        try {
+            windowManager.addView(view, params)
+        } catch (_: RuntimeException) {
+            stopAfterOverlayFailure()
+        }
+    }
+
+    private fun stopAfterOverlayFailure() {
+        overlayFailed = true
+        activeContentController?.dispose()
+        activeContentController = null
+        removeOverlay(passiveView)
+        removeOverlay(activeView)
+        passiveView = null
+        activeView = null
+        isActiveState = false
+        StartupPreferences.markHudStopped(this)
+        OverlayServiceStateStore.markStopped()
+        Log.w(TAG, "HUD stopped because its overlay window is unavailable")
+        stopSelf()
     }
 
     private fun updatePassiveText(text: String) {
@@ -384,7 +418,7 @@ class OverlayService : Service() {
         view.contentDescription = getString(R.string.overlay_bubble_content_description, text)
     }
 
-    private fun getFormattedScreenTime(): String = ScreenTimeDisplay.current(this)
+    private fun getFormattedScreenTime(): String = latestTimeText
 
     private fun dpToPx(dp: Int): Int {
         val density = resources.displayMetrics.density
