@@ -121,6 +121,18 @@ class MainActivity : ComponentActivity() {
 
 internal const val EXTRA_TIMEHUD_DESTINATION = "com.boringutils.timehud.extra.DESTINATION"
 
+private sealed interface CalendarAgendaUiState {
+    data object Loading : CalendarAgendaUiState
+
+    data class Ready(val items: List<TodayCalendarItem>) : CalendarAgendaUiState
+
+    data object Empty : CalendarAgendaUiState
+
+    data object PermissionRequired : CalendarAgendaUiState
+
+    data object Unavailable : CalendarAgendaUiState
+}
+
 internal fun parseTimeHudDestination(value: String?): TimeHudDestination? = value?.let { name ->
     runCatching { TimeHudDestination.valueOf(name) }.getOrNull()
 }
@@ -220,7 +232,16 @@ fun TimeHUDScreen(
     var shortTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.shortTermGoals) }
     var longTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.longTermGoals) }
     var goalsSaved by rememberSaveable { mutableStateOf(false) }
-    var calendarImportStatus by rememberSaveable { mutableStateOf<String?>(null) }
+    var calendarAgendaUiState by remember {
+        mutableStateOf<CalendarAgendaUiState>(
+            if (calendarGranted) {
+                CalendarAgendaUiState.Loading
+            } else {
+                CalendarAgendaUiState.PermissionRequired
+            }
+        )
+    }
+    var calendarAgendaRefreshRequest by rememberSaveable { mutableLongStateOf(0L) }
     var backupStatusMessageRes by rememberSaveable { mutableStateOf<Int?>(null) }
     var backupStatusIsError by rememberSaveable { mutableStateOf<Boolean?>(null) }
     var backupOperationInProgress by rememberSaveable { mutableStateOf(false) }
@@ -251,39 +272,41 @@ fun TimeHUDScreen(
         pendingImportReady = false
     }
 
-    fun applyCalendarImport() {
-        clearBackupStatus()
-        val items = CalendarAgenda.loadTodayVisibleInstances(context)
-        if (items.isEmpty()) {
-            calendarImportStatus = "No visible calendar events today"
-            return
+    LaunchedEffect(calendarGranted, calendarAgendaRefreshRequest) {
+        if (!calendarGranted) {
+            calendarAgendaUiState = CalendarAgendaUiState.PermissionRequired
+            return@LaunchedEffect
         }
 
-        shortTermGoals = CalendarAgenda.appendCalendarSection(shortTermGoals, items)
-        goalsSaved = false
-        val noun = if (items.size == 1) "event" else "events"
-        calendarImportStatus = "Imported ${items.size} calendar $noun. Review and save."
+        calendarAgendaUiState = CalendarAgendaUiState.Loading
+        calendarAgendaUiState = when (
+            val result = withContext(Dispatchers.IO) {
+                CalendarAgenda.loadTodayVisibleInstances(context)
+            }
+        ) {
+            is CalendarAgendaLoadResult.Available -> {
+                if (result.items.isEmpty()) {
+                    CalendarAgendaUiState.Empty
+                } else {
+                    CalendarAgendaUiState.Ready(result.items)
+                }
+            }
+            CalendarAgendaLoadResult.PermissionRequired -> {
+                CalendarAgendaUiState.PermissionRequired
+            }
+            CalendarAgendaLoadResult.Unavailable -> CalendarAgendaUiState.Unavailable
+        }
     }
 
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         calendarGranted = granted
-        calendarImportStatus = context.getString(
-            if (granted) {
-                R.string.calendar_permission_granted
-            } else {
-                R.string.calendar_permission_denied
-            }
-        )
-    }
-
-    fun requestCalendarImport() {
-        if (CalendarAgenda.hasReadCalendarPermission(context)) {
-            calendarGranted = true
-            applyCalendarImport()
+        if (granted) {
+            selectedDestinationName = TimeHudDestination.GOALS.name
+            calendarAgendaRefreshRequest += 1L
         } else {
-            selectedDestinationName = TimeHudDestination.PERMISSIONS.name
+            calendarAgendaUiState = CalendarAgendaUiState.PermissionRequired
         }
     }
 
@@ -365,6 +388,11 @@ fun TimeHUDScreen(
                 usageGranted = hasUsagePermission(context)
                 accessibilityGranted = AccessibilityServiceStatus.isEnabled(context)
                 calendarGranted = CalendarAgenda.hasReadCalendarPermission(context)
+                if (calendarGranted) {
+                    calendarAgendaRefreshRequest += 1L
+                } else {
+                    calendarAgendaUiState = CalendarAgendaUiState.PermissionRequired
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -403,9 +431,16 @@ fun TimeHUDScreen(
                 },
                 onSaveGoals = { saveGoalSettings() },
                 goalsSaved = goalsSaved,
-                calendarGranted = calendarGranted,
-                calendarImportStatus = calendarImportStatus,
-                onImportCalendar = { requestCalendarImport() },
+                calendarAgendaUiState = calendarAgendaUiState,
+                onRefreshCalendar = { calendarAgendaRefreshRequest += 1L },
+                hasLegacyCalendarImport = shortTermGoals.lines().any {
+                    it.trim() == CalendarGoalSection.HEADER
+                },
+                onRemoveLegacyCalendarImport = {
+                    shortTermGoals = CalendarGoalSection.removeFrom(shortTermGoals)
+                    goalsSaved = false
+                    clearBackupStatus()
+                },
                 backupOperationInProgress = backupOperationInProgress,
                 backupStatusMessageRes = backupStatusMessageRes,
                 backupStatusIsError = backupStatusIsError,
@@ -487,7 +522,6 @@ fun TimeHUDScreen(
                 shortTermGoals = importedBackup.shortTermGoalText
                 longTermGoals = importedBackup.longTermGoalText
                 goalsSaved = true
-                calendarImportStatus = null
                 clearPendingImport()
                 showBackupStatus(R.string.goal_backup_import_success, isError = false)
             },
@@ -504,9 +538,10 @@ private fun GoalsPage(
     onLongTermGoalsChange: (String) -> Unit,
     onSaveGoals: () -> Unit,
     goalsSaved: Boolean,
-    calendarGranted: Boolean,
-    calendarImportStatus: String?,
-    onImportCalendar: () -> Unit,
+    calendarAgendaUiState: CalendarAgendaUiState,
+    onRefreshCalendar: () -> Unit,
+    hasLegacyCalendarImport: Boolean,
+    onRemoveLegacyCalendarImport: () -> Unit,
     backupOperationInProgress: Boolean,
     backupStatusMessageRes: Int?,
     backupStatusIsError: Boolean?,
@@ -535,10 +570,17 @@ private fun GoalsPage(
             longTermGoals = longTermGoals,
             onLongTermGoalsChange = onLongTermGoalsChange,
             onSave = onSaveGoals,
-            saved = goalsSaved,
-            calendarGranted = calendarGranted,
-            calendarImportStatus = calendarImportStatus,
-            onImportCalendar = onImportCalendar
+            saved = goalsSaved
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        TodayAgendaPanel(
+            state = calendarAgendaUiState,
+            onRefresh = onRefreshCalendar,
+            onOpenPermissions = onOpenPermissions,
+            hasLegacyCalendarImport = hasLegacyCalendarImport,
+            onRemoveLegacyCalendarImport = onRemoveLegacyCalendarImport
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -704,16 +746,128 @@ private fun PermissionsPage(
 }
 
 @Composable
+private fun TodayAgendaPanel(
+    state: CalendarAgendaUiState,
+    onRefresh: () -> Unit,
+    onOpenPermissions: () -> Unit,
+    hasLegacyCalendarImport: Boolean,
+    onRemoveLegacyCalendarImport: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(TimeHudColors.surface)
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.agenda_heading),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TimeHudColors.textPrimary
+                )
+                Text(
+                    text = stringResource(R.string.agenda_description),
+                    fontSize = 12.sp,
+                    color = TimeHudColors.textSecondary
+                )
+            }
+
+            if (state !is CalendarAgendaUiState.PermissionRequired) {
+                OutlinedButton(
+                    onClick = onRefresh,
+                    enabled = state !is CalendarAgendaUiState.Loading
+                ) {
+                    Text(stringResource(R.string.agenda_refresh))
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        when (state) {
+            CalendarAgendaUiState.Loading -> {
+                Text(
+                    text = stringResource(R.string.agenda_loading),
+                    color = TimeHudColors.textSecondary,
+                    fontSize = 13.sp
+                )
+            }
+            is CalendarAgendaUiState.Ready -> {
+                val visibleItems = state.items.take(5)
+                visibleItems.forEachIndexed { index, item ->
+                    if (index > 0) Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = CalendarAgenda.formatForAgenda(item),
+                        color = TimeHudColors.textPrimary,
+                        fontSize = 14.sp
+                    )
+                }
+                val remainingCount = state.items.size - visibleItems.size
+                if (remainingCount > 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.agenda_more_items, remainingCount),
+                        color = TimeHudColors.textSecondary,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+            CalendarAgendaUiState.Empty -> {
+                Text(
+                    text = stringResource(R.string.agenda_empty),
+                    color = TimeHudColors.textSecondary,
+                    fontSize = 13.sp
+                )
+            }
+            CalendarAgendaUiState.PermissionRequired -> {
+                Text(
+                    text = stringResource(R.string.agenda_permission_required),
+                    color = TimeHudColors.textSecondary,
+                    fontSize = 13.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(onClick = onOpenPermissions) {
+                    Text(stringResource(R.string.open_permissions))
+                }
+            }
+            CalendarAgendaUiState.Unavailable -> {
+                Text(
+                    text = stringResource(R.string.agenda_unavailable),
+                    color = TimeHudColors.statusWarning,
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        if (hasLegacyCalendarImport) {
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = stringResource(R.string.agenda_legacy_import_found),
+                color = TimeHudColors.statusWarning,
+                fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(onClick = onRemoveLegacyCalendarImport) {
+                Text(stringResource(R.string.agenda_remove_legacy_import))
+            }
+        }
+    }
+}
+
+@Composable
 fun GoalSettingsPanel(
     shortTermGoals: String,
     onShortTermGoalsChange: (String) -> Unit,
     longTermGoals: String,
     onLongTermGoalsChange: (String) -> Unit,
     onSave: () -> Unit,
-    saved: Boolean,
-    calendarGranted: Boolean,
-    calendarImportStatus: String?,
-    onImportCalendar: () -> Unit
+    saved: Boolean
 ) {
     Column(
         modifier = Modifier
@@ -758,36 +912,6 @@ fun GoalSettingsPanel(
             maxLines = 8,
             colors = timeHudTextFieldColors()
         )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        OutlinedButton(
-            onClick = onImportCalendar,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp),
-            shape = RoundedCornerShape(8.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = TimeHudColors.textEmphasis)
-        ) {
-            Text(
-                text = if (calendarGranted) {
-                    "Import Today's Calendar"
-                } else {
-                    stringResource(R.string.calendar_permission_setup)
-                },
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-
-        calendarImportStatus?.let { status ->
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = status,
-                fontSize = 12.sp,
-                color = TimeHudColors.textSecondary
-            )
-        }
 
         Spacer(modifier = Modifier.height(12.dp))
 

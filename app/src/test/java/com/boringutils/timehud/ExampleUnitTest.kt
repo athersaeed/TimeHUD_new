@@ -83,44 +83,41 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun calendar_import_appends_section_without_replacing_manual_goals() {
-        val result = CalendarAgenda.appendCalendarSection(
-            shortTermGoals = "Finish report",
-            items = listOf(calendarItem(title = "Team standup"))
+    fun legacy_calendar_section_is_not_parsed_as_short_term_goals() {
+        val configuration = GoalConfiguration(
+            shortTermGoals = """
+                Finish report
+
+                ${CalendarGoalSection.HEADER}
+                All day Team standup
+            """.trimIndent(),
+            longTermGoals = "Long goal"
         )
 
-        assertTrue(result.startsWith("Finish report"))
-        assertTrue(result.contains(CalendarGoalSection.HEADER))
-        assertTrue(result.contains("All day Team standup"))
+        assertEquals(listOf("Finish report"), configuration.shortTermItems)
     }
 
     @Test
-    fun calendar_import_replaces_previous_calendar_section() {
-        val previousGoals = """
-            Finish report
+    fun legacy_calendar_section_removal_keeps_manual_goals_before_it() {
+        val result = CalendarGoalSection.removeFrom(
+            """
+                Finish report
 
-            ${CalendarGoalSection.HEADER}
-            All day Old meeting
-        """.trimIndent()
-
-        val result = CalendarAgenda.appendCalendarSection(
-            shortTermGoals = previousGoals,
-            items = listOf(calendarItem(title = "Planning review"))
-        )
-
-        assertTrue(result.contains("Finish report"))
-        assertTrue(result.contains("All day Planning review"))
-        assertFalse(result.contains("Old meeting"))
-    }
-
-    @Test
-    fun empty_calendar_import_keeps_manual_goals() {
-        val result = CalendarAgenda.appendCalendarSection(
-            shortTermGoals = "Finish report",
-            items = emptyList()
+                ${CalendarGoalSection.HEADER}
+                All day Team standup
+            """.trimIndent()
         )
 
         assertEquals("Finish report", result)
+    }
+
+    @Test
+    fun all_day_calendar_item_is_formatted_for_the_agenda() {
+        val result = CalendarAgenda.formatForAgenda(
+            calendarItem(title = "Team standup")
+        )
+
+        assertEquals("All day Team standup", result)
     }
 
     @Test

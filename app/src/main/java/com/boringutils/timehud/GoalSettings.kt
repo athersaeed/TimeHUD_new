@@ -10,7 +10,7 @@ data class GoalConfiguration(
     val longTermGoals: String
 ) {
     val shortTermItems: List<String>
-        get() = shortTermGoals.toGoalItems()
+        get() = CalendarGoalSection.removeFrom(shortTermGoals).toGoalItems()
 
     val longTermItems: List<String>
         get() = longTermGoals.toGoalItems()

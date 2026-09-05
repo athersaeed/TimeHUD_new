@@ -15,6 +15,12 @@ import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
 import java.util.Calendar
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal class ActiveOverlayContentController(
     private val context: Context,
@@ -27,6 +33,7 @@ internal class ActiveOverlayContentController(
 ) {
     private var activeGoalConfig = GoalSettings.load(context)
     private var activeGoalMode = GoalMode.SHORT_TERM
+    private val agendaScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val enableCloseRunnable = Runnable {
         rootView.findViewById<Button>(R.id.btn_close_active)?.let {
@@ -36,7 +43,7 @@ internal class ActiveOverlayContentController(
 
     init {
         rootView.findViewById<TextView>(R.id.tv_time)?.text = timeText
-        updateAgenda(CalendarAgenda.loadTodayVisibleInstances(context))
+        loadAgenda()
         updateGoals()
         rootView.findViewById<Switch>(R.id.switch_goal_mode)
             ?.setOnCheckedChangeListener { _, checked ->
@@ -56,7 +63,22 @@ internal class ActiveOverlayContentController(
 
     fun dispose() {
         handler.removeCallbacks(enableCloseRunnable)
+        agendaScope.cancel()
         rootView.animate().cancel()
+    }
+
+    private fun loadAgenda() {
+        agendaScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                CalendarAgenda.loadTodayVisibleInstances(context)
+            }
+            val items = when (result) {
+                is CalendarAgendaLoadResult.Available -> result.items
+                CalendarAgendaLoadResult.PermissionRequired,
+                CalendarAgendaLoadResult.Unavailable -> emptyList()
+            }
+            updateAgenda(items)
+        }
     }
 
     private fun configureCloseButton(button: Button, enabled: Boolean) {
@@ -343,7 +365,7 @@ internal class ActiveOverlayContentController(
         agendaLayout?.visibility = View.VISIBLE
         val visibleItems = items.take(5)
         val remainingCount = items.size - visibleItems.size
-        val agendaLines = visibleItems.map { "- ${CalendarAgenda.formatForGoals(it)}" }
+        val agendaLines = visibleItems.map { "- ${CalendarAgenda.formatForAgenda(it)}" }
             .toMutableList()
         if (remainingCount > 0) {
             agendaLines += context.getString(R.string.active_more_agenda_items, remainingCount)

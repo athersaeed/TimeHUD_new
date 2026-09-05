@@ -22,6 +22,14 @@ data class TodayCalendarItem(
     val calendarColor: Int?
 )
 
+sealed interface CalendarAgendaLoadResult {
+    data class Available(val items: List<TodayCalendarItem>) : CalendarAgendaLoadResult
+
+    data object PermissionRequired : CalendarAgendaLoadResult
+
+    data object Unavailable : CalendarAgendaLoadResult
+}
+
 object CalendarGoalSection {
     const val HEADER = "Calendar Today"
 
@@ -53,8 +61,10 @@ object CalendarAgenda {
             Manifest.permission.READ_CALENDAR
         ) == PackageManager.PERMISSION_GRANTED
 
-    fun loadTodayVisibleInstances(context: Context): List<TodayCalendarItem> {
-        if (!hasReadCalendarPermission(context)) return emptyList()
+    fun loadTodayVisibleInstances(context: Context): CalendarAgendaLoadResult {
+        if (!hasReadCalendarPermission(context)) {
+            return CalendarAgendaLoadResult.PermissionRequired
+        }
 
         val startMillis = todayStartMillis()
         val endMillis = tomorrowStartMillis(startMillis)
@@ -80,31 +90,16 @@ object CalendarAgenda {
                         add(cursor.toTodayCalendarItem())
                     }
                 }
-            }.orEmpty()
+            }?.let(CalendarAgendaLoadResult::Available)
+                ?: CalendarAgendaLoadResult.Unavailable
         } catch (_: SecurityException) {
-            emptyList()
+            CalendarAgendaLoadResult.Unavailable
         } catch (_: IllegalArgumentException) {
-            emptyList()
+            CalendarAgendaLoadResult.Unavailable
         }
     }
 
-    fun appendCalendarSection(shortTermGoals: String, items: List<TodayCalendarItem>): String {
-        val manualGoals = CalendarGoalSection.removeFrom(shortTermGoals).trim()
-        if (items.isEmpty()) return manualGoals
-
-        val calendarSection = buildString {
-            appendLine(CalendarGoalSection.HEADER)
-            items.forEach { item ->
-                appendLine(formatForGoals(item))
-            }
-        }.trim()
-
-        return listOf(manualGoals, calendarSection)
-            .filter { it.isNotBlank() }
-            .joinToString(separator = "\n\n")
-    }
-
-    fun formatForGoals(item: TodayCalendarItem): String {
+    fun formatForAgenda(item: TodayCalendarItem): String {
         val title = item.title.ifBlank { "Untitled event" }
         if (item.allDay) return "All day $title"
 

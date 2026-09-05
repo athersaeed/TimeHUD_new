@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-11
 
-Last implementation update: 2026-09-03
+Last implementation update: 2026-09-05
 
 This document is a source-based technical handoff for the checked-in Android project. It describes the current repository, not a proposed architecture. Generated content under `app/build/`, `.gradle/`, `.gradle-work/`, and `.kotlin/` was ignored except for verification reports and build artifacts produced during this audit.
 
@@ -20,7 +20,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 1. Launch the single `MainActivity` from the app icon. The **Goals** destination opens first, with a hamburger drawer for **Goals**, **App usage**, **Usage restrictions**, **App limits**, and **Permissions**.
 2. Open **Permissions** from the bottom of the drawer and grant special overlay access and usage access. The **Start HUD** button remains disabled until both are detected (`MainActivity.kt`). Calendar access is optional and is requested on this page.
 3. On **Goals**, optionally edit short-term and long-term goals. The **Goal Backup** panel can export the current editor contents to JSON or restore a validated JSON backup after confirmation. The system document picker supplies one-time file access; no storage permission is requested (`MainActivity.kt`, `ui/backup/GoalBackupPanel.kt`).
-4. Optionally import today's visible calendar events into the short-term text after calendar access is granted (`MainActivity.kt`, `CalendarAgenda.kt`).
+4. Optionally grant calendar access to show today's visible events in a separate, live, read-only agenda on the Goals page and active check-in (`MainActivity.kt`, `CalendarAgenda.kt`, `ActiveOverlayContentController.kt`).
 5. Save goals or press **Start HUD**, which saves the current fields and starts `OverlayService` as a foreground service (`MainActivity.kt`).
 6. A circular timer bubble appears over other apps and updates every 10 seconds. It can be dragged anywhere within the screen; the last position is restored when the bubble returns (`OverlayService.kt`, `BubblePositioning.kt`, `overlay_passive.xml`).
 7. Once per newly observed five-minute total-screen-time bucket, a touchable full-screen overlay appears. It shows the time, up to five live calendar events, and up to eight short- or long-term goal lines (`OverlayService.kt:161-212`, `OverlayService.kt:236-260`, `OverlayService.kt:491-509`, `OverlayService.kt:528-532`). Because `lastTriggeredBucket` begins at `-1`, starting/restarting the service after at least five minutes of accumulated screen time can trigger this overlay immediately.
@@ -48,7 +48,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 - Multi-window-aware accessibility shields that preserve higher-layer pop-up regions.
 - Manual goal-only JSON export and replacement import through Android's Storage Access Framework, including confirmation and validation.
 - Daily completion state, undo by tapping a completed row, permanent goal removal, and completion animation.
-- Optional read-only import/display of today's visible device-calendar events.
+- Optional live, read-only display of today's visible device-calendar events, kept separate from checkable goal text.
 - Start/stop state reflected in the setup UI while the process is alive.
 - Conditional restart after boot or app replacement.
 
@@ -95,7 +95,7 @@ The app is a **single-module, component-oriented Android application**, not MVVM
 
 - The app does not use app-wide MVVM, MVI, Clean Architecture, use cases, or dependency injection. The App usage destination adds one focused `AndroidViewModel` and a local usage repository without changing the rest of the architecture.
 - `MainActivity` owns the Compose Goals/Permissions state, drawer selection, Android permission launchers, preference helpers, calendar helpers, and service start/stop functions.
-- `OverlayService` is the runtime controller. It calculates usage, inflates and mutates overlay views, queries calendar data, and reads/writes goal persistence.
+- `OverlayService` is the runtime controller. It calculates usage, inflates and mutates overlay views, coordinates background calendar loading, and reads/writes goal persistence.
 - Stateless or persistence-oriented behavior is extracted into singleton objects: `CalendarAgenda`, `GoalSettings`, `GoalCompletionStore`, `StartupPreferences`, and `OverlayServiceStateStore`.
 - `AppUsageRepository` performs the platform usage-event query, while `AppUsageCalculator` contains the pure interval aggregation used by JVM tests.
 
@@ -133,7 +133,7 @@ AccessibilityWindowInfo trees + usage-restriction/app-limit SharedPreferences
 
 Calendar provider
   -> CalendarAgenda
-  -> optional imported goal text and live active-overlay agenda
+  -> live read-only Goals-page and active-overlay agendas
 
 Storage Access Framework document URI
   <-> GoalBackupStorage on Dispatchers.IO
@@ -148,7 +148,7 @@ OverlayService lifecycle
 
 ### State handling
 
-- `MainActivity` keeps permission flags with `remember`, drawer selection plus editor text/status with `rememberSaveable`, and observes `OverlayServiceStateStore.uiState` with `collectAsState()`.
+- `MainActivity` keeps permission flags and typed agenda loading state with `remember`, drawer selection plus editor text/status with `rememberSaveable`, and observes `OverlayServiceStateStore.uiState` with `collectAsState()`.
 - An `ON_RESUME` observer rechecks overlay, usage, and calendar permissions after system screens return (`MainActivity.kt:181-191`).
 - `rememberSaveable` restores the selected destination, unsaved goal edits, and status across ordinary activity recreation. App-usage loading/results live in an activity-scoped `AppUsageViewModel`; other screens still have no ViewModel or saved-state schema.
 - `OverlayServiceStateStore` is process-memory only. `StartupPreferences` separately persists the user's active-HUD intent for boot/restart behavior (`OverlayServiceState.kt`, `StartupPreferences.kt`).
@@ -161,9 +161,9 @@ OverlayService lifecycle
 - Goal parsing, normalization, removal, and persistence live in `GoalSettings.kt`; completion-key and daily-date behavior live in `GoalCompletionStore.kt`.
 - Calendar querying/formatting lives in `CalendarAgenda.kt`.
 - Goal backup schema validation/serialization and one-time URI stream handling live in `GoalBackup.kt`; picker and confirmation state remain in `TimeHUDScreen`.
-- There is no generalized app-wide loading/error model. Goal backup introduces typed parse/read/write results plus disabled/loading/success/error presentation while asynchronous work runs; older goal/calendar/service flows remain mostly synchronous and ad hoc.
-- Calendar query `SecurityException` and `IllegalArgumentException` are converted to an empty list, so callers cannot distinguish failure from “no events” (`CalendarAgenda.kt:59-77`). Other service/overlay failures are not surfaced to the user.
-- Backup document/JSON work and the new per-app usage-history query run on `Dispatchers.IO`. Existing calendar queries and the service's total screen-time aggregation still run on the main thread; the service `Handler` also drives UI ticks and animation delays.
+- There is no generalized app-wide loading/error model. Goal backup uses typed parse/read/write results, and calendar uses a typed available/permission-required/unavailable result plus Goals-page loading/empty states. Other older goal/service flows remain mostly synchronous and ad hoc.
+- Calendar query `SecurityException`, `IllegalArgumentException`, and null-provider results become `Unavailable`, distinct from an available empty event list. The active overlay hides unavailable agenda data while the Goals page offers Refresh.
+- Backup document/JSON work, per-app usage-history queries, and calendar-provider queries run on `Dispatchers.IO`. The service's total screen-time aggregation still runs on the main thread; the service `Handler` also drives UI ticks and animation delays.
 
 ## 4. Directory and module map
 
@@ -220,7 +220,7 @@ TimeHUD_cloud/
         drawable/                      Launcher vectors and two currently unused backgrounds
         mipmap-*/                      Launcher icons
         xml/                            Backup/data-extraction template rules
-    src/test/.../ExampleUnitTest.kt     Eight JVM unit tests
+    src/test/.../ExampleUnitTest.kt     Fifteen JVM unit tests
     src/test/.../GoalBackupTest.kt      Goal backup schema and calendar-exclusion JVM tests
     src/test/.../AppUsageCalculatorTest.kt
                                          App usage aggregation, boundary, and formatting tests
@@ -242,7 +242,7 @@ The overlay entries below are service-owned window layers rather than Android na
 
 | Screen/layer | Route or destination | Main source | ViewModel | Purpose and entry | Important actions | Data dependencies |
 |---|---|---|---|---|---|---|
-| Goals page | Launcher `MAIN`/`LAUNCHER` -> `.MainActivity`; `GOALS` drawer destination | `MainActivity.kt`, Compose | None | Default in-app page; opened by launcher, notification, drawer, or Back from a secondary page | Edit/save/backup goals, import calendar, start/stop HUD, open Permissions when required access is missing | Goal/calendar/backup helpers, `OverlayServiceStateStore` |
+| Goals page | Launcher `MAIN`/`LAUNCHER` -> `.MainActivity`; `GOALS` drawer destination | `MainActivity.kt`, Compose | None | Default in-app page; opened by launcher, notification, drawer, or Back from a secondary page | Edit/save/backup goals, inspect or refresh the live read-only agenda, remove legacy imported calendar text for review, start/stop HUD, open Permissions when required access is missing | Goal/calendar/backup helpers, `OverlayServiceStateStore` |
 | App usage page | `APP_USAGE` drawer destination | `ui/usage/`, Compose | `AppUsageViewModel` | Secondary page opened from the drawer | Refresh, inspect top-five chart, scroll every app longest-first, open Permissions when usage access is missing | `UsageStatsManager`, `PackageManager`, `AppUsageRepository` |
 | Usage restrictions page | `BRICK_MODE` internal destination | `ui/brick/`, Compose | `BrickModeViewModel` | Secondary page opened from the drawer | Choose Restricted Mode or Brick Mode; manage their separate allow-lists; start manual/timed sessions; add per-level schedules; open Accessibility settings | `BrickModeSettings`, `PackageManager`, Android Accessibility Settings |
 | App limits page | `APP_LIMITS` drawer destination | `ui/blocking/`, Compose | `AppBlockingViewModel` | Secondary page opened from the drawer | Search installed apps by name or package; enable the app-limit accessibility service; set/remove daily limits; configure supported section rules and the Instagram open-chat exemption | Usage history, `AppBlockSettings`, Android Accessibility Settings |
@@ -255,7 +255,7 @@ The overlay entries below are service-owned window layers rather than Android na
 | Completion celebration | Transient child layer in active overlay | `OverlayService.kt:376-489`, `overlay_active.xml:132-160` | None | Runs after marking a task complete | None | Current goal-row view |
 | Overlay permission settings | External `Settings.ACTION_MANAGE_OVERLAY_PERMISSION` | `MainActivity.kt:106-113` | N/A | Opened from Overlay Permission card | User grants/denies special access | Android Settings |
 | Usage access settings | External `Settings.ACTION_USAGE_ACCESS_SETTINGS` | `MainActivity.kt:115-119` | N/A | Opened from Usage Access card | User grants/denies special access | Android Settings |
-| Calendar permission dialog | Android runtime permission UI | `MainActivity.kt:197-215` | N/A | Opened by Connect/Import Calendar when needed | Grant/deny calendar read access | Android permission controller |
+| Calendar permission dialog | Android runtime permission UI | `MainActivity.kt` | N/A | Opened from the Calendar card on Permissions | Grant/deny calendar read access; a grant returns to Goals and loads the agenda | Android permission controller |
 
 There are no splash, onboarding, authentication, profile, conventional settings, detail, or bottom-sheet screens.
 
@@ -289,7 +289,7 @@ App icon or notification
             -> Overlay permission card -> Android overlay settings -> resume MainActivity
             -> Usage card -> Android usage-access settings -> resume MainActivity
             -> Calendar card -> runtime permission dialog -> resume MainActivity
-       -> Calendar button -> import into editor when calendar access is granted
+       -> Today's agenda -> live read-only events, Refresh, or Open Permissions
        -> Export Goals -> system create-document picker -> write goal-only JSON
        -> Import Goals -> system open-document picker
             -> invalid/unreadable -> inline error; no data change
@@ -318,7 +318,7 @@ Device boot or app replacement
 
 | Owner | State exposed/held | Inputs/events | Restoration and fragility |
 |---|---|---|---|
-| `TimeHUDScreen` composable | Permission flags; short/long editor strings; save/calendar/backup status; pending picker snapshots and validated import; collected service state | Permission taps, edits, calendar import, backup export/import/confirmation, start/stop, resume | Goal editor and pending backup state use `rememberSaveable`; file I/O uses a composition coroutine scope and returns to main state. A confirmed restore writes and updates both editor fields together, preventing pre-import editor text from being re-saved. The older service-side goal-removal divergence remains outside this flow. |
+| `TimeHUDScreen` composable | Permission flags; short/long editor strings; typed calendar agenda state; pending picker snapshots and validated backup import; collected service state | Permission taps, edits, agenda refresh, legacy-calendar cleanup, backup export/import/confirmation, start/stop, resume | Goal editor and pending backup state use `rememberSaveable`; file and calendar I/O use lifecycle-bound coroutines and return to main state. A confirmed restore writes and updates both editor fields together. The older service-side goal-removal divergence remains outside this flow. |
 | `AppUsageViewModel` | Loading, ready/empty, permission-required, and unavailable states plus sorted app entries | Page composition/resume and manual Refresh | Activity-scoped ViewModel cancels a previous refresh before starting a new `Dispatchers.IO` query. Results are not persisted. |
 | `BrickModeViewModel` | Loading state, enabled state, installed launchable-app list, protected essentials, and chosen apps | Page composition/resume, master switch, and per-app switches | Activity-scoped ViewModel loads the package catalog on `Dispatchers.IO`; enabled state and chosen package names persist in `BrickModeSettings`. Search is local UI state. |
 | `AppBlockingViewModel` | Loading, usage-permission-required, launchable app list, current daily usage, and configured rules | Page composition/resume and rule save/removal | Activity-scoped ViewModel loads package/usage state on `Dispatchers.IO`; rules persist separately in `AppBlockSettings`. The App limits composable keeps its local search query across ordinary recreation and filters the already-loaded list without another provider query. |
@@ -330,7 +330,7 @@ Device boot or app replacement
 | `GoalBackupFormat` / `GoalBackupStorage` | Versioned goal-only JSON and typed read/write results | Serialize current editor snapshot; validate selected document | Parsing produces no goal object until every required field is valid. Unknown fields are ignored. URI access is one-time and streams are always closed. |
 | `GoalCompletionStore` | Set of normalized goal keys plus stored date | Complete/uncomplete goal | Daily by local `yyyy-MM-dd`; old stored keys remain on disk but are ignored after the date changes until a new completion is saved. |
 
-There is no LiveData, Redux/MVI intent model, one-time event channel, snackbar system, or app-wide error state. App usage has focused loading/empty/permission/error states; calendar and backup status are rendered inline. Empty goals produce `- No goals saved yet`; empty calendar hides the agenda or reports “No visible calendar events today.”
+There is no LiveData, Redux/MVI intent model, one-time event channel, snackbar system, or app-wide error state. App usage and the Goals-page agenda have focused loading/empty/permission/error states; backup status is rendered inline. Empty goals produce `- No goals saved yet`; an empty calendar hides the overlay agenda and shows a specific empty state on Goals.
 
 ## 8. Data layer
 
@@ -358,7 +358,9 @@ All persistence is private `SharedPreferences`:
 - `CalendarAgenda.loadTodayVisibleInstances()` queries `CalendarContract.Instances` from local midnight through next local midnight, filters to visible and not-deleted instances, and sorts by begin/end (`CalendarAgenda.kt:56-89`).
 - The response model is `TodayCalendarItem` with event/calendar IDs, title, start/end, all-day flag, calendar name, and optional color (`CalendarAgenda.kt:14-23`). Name/color/IDs are currently not shown or persisted as structured data.
 - All-day events render as `All day <title>`; timed events use locale-default `HH:mm-HH:mm` (`CalendarAgenda.kt:107-115`).
-- Manual import uses the shared `CalendarGoalSection` helper to remove everything from the first recognized `Calendar Today` header onward, then appends the new section (`CalendarAgenda.kt:25-35`, `:91-105`). It does not automatically refresh tomorrow, and imported lines become ordinary goal rows (including the header) if saved.
+- Calendar events are not copied into goal text. The Goals page loads them on entry/resume and on explicit Refresh, while each active overlay loads a fresh agenda when it opens.
+- `CalendarAgendaLoadResult` distinguishes available data, missing permission, and provider failure. The Goals page presents loading, empty, permission-required, ready, and unavailable states.
+- The shared `CalendarGoalSection` helper remains only for backward compatibility with older saved/backup text. Legacy sections are excluded from checklist parsing, and the Goals page offers an explicit removal action that updates the editor for review before Save.
 
 ### Manual goal backup
 
@@ -398,7 +400,7 @@ There are no API clients, base URLs, endpoints, network DTOs, repositories, Room
 |---|---|---|---|---|
 | Android Usage Access/AppOps | Permission gate, screen-interactive events, and per-app foreground history | Manifest `PACKAGE_USAGE_STATS`; `MainActivity.kt`; `BootReceiver.kt`; `OverlayService.kt`; `ui/usage/` | None | Implemented with API 24-28 permission-check fallback; lower-API and real-device app-history behavior still need manual coverage. |
 | Android `WindowManager` overlays | Passive and active HUD over other apps | Manifest `SYSTEM_ALERT_WINDOW`; permission intent in `MainActivity`; overlay creation in `OverlayService.kt:128-212` | None | Implemented; permission-revocation failures are not caught. |
-| Android Calendar Provider | Optional import and live agenda | Manifest `READ_CALENDAR`; `MainActivity.kt:148-179`; `CalendarAgenda.kt`; `OverlayService.kt:175,491-509` | None | Implemented read-only. Query failures are treated as empty data. |
+| Android Calendar Provider | Optional live, read-only agenda | Manifest `READ_CALENDAR`; `MainActivity.kt`; `CalendarAgenda.kt`; `ActiveOverlayContentController.kt` | None | Implemented read-only. Goals distinguishes missing permission, empty results, and provider failure; overlays fail closed by hiding an unavailable agenda. Queries run on `Dispatchers.IO`. |
 | Android foreground-service notification | Keeps service foreground and returns to app | Manifest foreground-service permissions/type; `OverlayService.kt:55-125`; strings resources | None | Implemented. Runtime notification permission handling is missing. |
 | Android boot/package broadcasts | Restart previously active HUD | Manifest receiver; `BootReceiver.kt`; `StartupPreferences.kt` | None | Implemented with overlay/usage gates. |
 | Android Storage Access Framework | One-time manual creation/opening of goal backup JSON documents | `MainActivity.kt`, `GoalBackup.kt`, `ui/backup/GoalBackupPanel.kt` | None; no retained URI grant | Implemented for goal-only export and confirmed replacement import. |
@@ -417,7 +419,7 @@ The `hud_active` startup preference is only a local service-restart preference; 
 |---|---|---|---|
 | `SYSTEM_ALERT_WINDOW` | Add HUD windows through `WindowManager` | Special-access intent from `requestOverlayPermission()`; checked with `Settings.canDrawOverlays()` | Start button stays disabled. If revoked while running, overlay calls are not guarded and may fail. |
 | `PACKAGE_USAGE_STATS` | Read usage events for screen time | Usage-access Settings intent; checked through `AppOpsManager` with an API-level-compatible fallback | Start button stays disabled; boot restart is skipped. |
-| `READ_CALENDAR` | Query today's visible calendar instances | Optional runtime request on the Permissions page; Goals imports after access is granted | Inline denial/status message; HUD still works and agenda query returns empty. |
+| `READ_CALENDAR` | Query today's visible calendar instances | Optional runtime request on the Permissions page; a grant returns to Goals and loads the agenda | Goals shows a permission-required state; the HUD and goal checklist remain usable. |
 | `FOREGROUND_SERVICE` | Run `OverlayService` persistently | Normal install permission; no prompt | No custom refusal path. |
 | `FOREGROUND_SERVICE_SPECIAL_USE` | Target-36 special-use foreground-service type | Declared with `foregroundServiceType="specialUse"` and explanatory property (`AndroidManifest.xml:47-54`) | No runtime UI; release policy/declaration requirements are outside this repo. |
 | `POST_NOTIFICATIONS` | Permit foreground notification visibility on Android 13+ | Declared only; no runtime request exists | App does not explain or react to denial. Foreground-service UX/visibility can be reduced depending on platform behavior. |
@@ -544,10 +546,12 @@ Production blockers/concerns:
 
 ### Existing tests
 
-`app/src/test/java/com/boringutils/timehud/ExampleUnitTest.kt` contains 12 passing JVM tests:
+`app/src/test/java/com/boringutils/timehud/ExampleUnitTest.kt` contains 15 passing JVM tests:
 
 - Start/stop primary-action derivation.
-- Calendar-section append, replacement, and empty behavior.
+- Live-agenda formatting plus legacy calendar-section removal and checklist exclusion.
+- Bubble and blocked-check-in trigger behavior.
+- Destination parsing and screen-time formatting.
 - Goal-completion key normalization.
 - Stored completion-date comparison.
 - First-matching goal-line removal.
@@ -643,7 +647,7 @@ The most important untested behavior is also the most failure-prone: total scree
 - Foreground overlay service, draggable bubble, active check-in, notification, explicit stop.
 - Local goal editing, defaults, persistence, daily completion, undo/removal, and celebration UI.
 - Manual goal-only JSON export and validated, confirmed replacement import through the system document picker.
-- Optional calendar permission, import, and live agenda rendering.
+- Optional calendar permission and live, read-only agenda rendering on Goals and active check-ins.
 - Prior-active conditional restart after boot/package replacement.
 - Debug/release compilation and basic project-specific unit/manifest tests.
 
@@ -653,7 +657,7 @@ The most important untested behavior is also the most failure-prone: total scree
 
 - API 24-28 usage-access behavior has a compatible code path but has not been exercised on physical devices or emulators in this workspace.
 - Notification permission is manifest-only (`AndroidManifest.xml:8`); no `POST_NOTIFICATIONS` launcher exists.
-- Calendar errors and empty calendars are indistinguishable (`CalendarAgenda.kt:59-77`). Imported calendar text is a manual snapshot and can remain stale on later days.
+- Calendar Provider behavior still requires physical-device coverage across vendors and permission revocation while an overlay is open.
 - Service state is split between an in-memory StateFlow and persistent desired-start preference, with no OS-level service query.
 - Release assembly works but produces an unsigned APK.
 
@@ -669,7 +673,7 @@ The most important untested behavior is also the most failure-prone: total scree
 ### Known behavioral issues supported by code
 
 - If the service removes a goal while `MainActivity` remains alive behind the overlay, the activity's independent saved editor state is not refreshed; a later Save/Start can restore the removed line.
-- Saving imported calendar text still causes the literal `Calendar Today` header and event lines to be parsed as checkable goals in the live editor/HUD, with only the first eight total lines shown. Manual goal backups specifically exclude that generated section (`CalendarAgenda.kt:25-35`, `GoalBackup.kt:18-27`).
+- Older saved text can still contain a reserved `Calendar Today` section. It is no longer parsed into checklist rows; the Goals page exposes an explicit cleanup action because automatically deleting everything after that legacy marker could discard later manual edits.
 - Restarting the service after five minutes of accumulated usage can immediately open the active overlay because the last bucket is not persisted.
 - Goal normalization can make visually different goals share one completion key.
 
@@ -683,7 +687,7 @@ The most important untested behavior is also the most failure-prone: total scree
 | `app/src/main/AndroidManifest.xml` | Permissions/components/FGS type | Defines every platform capability and entry point | `MainActivity`, `OverlayService`, `BootReceiver` |
 | `MainActivity.kt` | Compose setup UI and permission/service actions | Only activity and user configuration surface | Goal/calendar helpers, service/state store, Android Settings |
 | `OverlayService.kt` | Foreground runtime and all HUD behavior | Core of the product; highest regression surface | XML overlays, usage/power services, goals, calendar, notification, activity |
-| `CalendarAgenda.kt` | Calendar query/model/format/import transformation | Owns all calendar semantics and failure collapsing | Activity import, active agenda, calendar provider |
+| `CalendarAgenda.kt` | Calendar query/model/format and typed load result | Owns calendar query boundaries, formatting, and provider failure classification | Goals-page agenda, active agenda, calendar provider |
 | `GoalBackup.kt` | Goal backup model, schema validation, JSON codec, and SAF stream handling | Enforces goal-only, all-or-nothing, versioned import/export | Main activity, calendar-section helper, `ContentResolver` |
 | `GoalSettings.kt` | Goal defaults/model/parsing/storage/removal | Defines what counts as a displayed goal and identity normalization | Activity editor, overlay rows, completion store |
 | `GoalCompletionStore.kt` | Date-scoped completion persistence | Controls daily done/undo behavior | Overlay goal interactions, `GoalMode`/normalization |
@@ -699,7 +703,7 @@ The most important untested behavior is also the most failure-prone: total scree
 | `blocking/` | Brick Mode and app-limit rules, persistence, focus tracking, supported-app classification, accessibility service, and overlay geometry | Owns local enforcement and multi-window-aware blocking | Accessibility APIs, PackageManager, UsageStats seed, SharedPreferences, WindowManager |
 | `ui/brick/` | Brick Mode switch, protected-app display, searchable allow-list, and Accessibility settings entry | Owns user configuration for whole-app allow-list enforcement | `BrickModeSettings`, `PackageManager`, Android Accessibility Settings |
 | `ui/blocking/` | App-limit list, accessibility disclosure/status, and rule dialog | Owns user configuration for daily and supported section rules | `AppBlockSettings`, `AppUsageRepository`, Android Accessibility Settings |
-| `ExampleUnitTest.kt` | Twelve existing pure behavior tests | Covers calendar, goals, completion keys, bubble positioning, triggers, and service UI state | Calendar, goals, completion keys, overlay helpers, service UI state |
+| `ExampleUnitTest.kt` | Fifteen pure behavior tests | Covers live-agenda formatting, legacy calendar-text exclusion, goals, completion keys, bubble positioning, triggers, and service UI state | Calendar, goals, completion keys, overlay helpers, service UI state |
 | `GoalBackupTest.kt` | Fourteen backup codec/text tests | Protects schema compatibility, special characters, exclusion, and error atomicity | `GoalBackup`, `CalendarGoalSection`, test-only `org.json` runtime |
 | `AppUsageCalculatorTest.kt` | Six per-app usage tests | Protects interval aggregation, reset boundary, duplicate handling, and display formatting | `AppUsageCalculator`, duration helpers |
 | `AppBlockingTest.kt` | Twelve pure app-blocking tests | Protects decision priority, all supported option/classifier mappings, limits, and pop-up region subtraction | `AppBlockDecisionEngine`, `AppSurfaceClassifier`, `VisibleRegionCalculator` |
@@ -717,7 +721,7 @@ Future work on screen-time behavior should read `OverlayService.kt`, `AndroidMan
 | **Medium** | API 24-28 permission fallback lacks device coverage | Both permission checks use the compatible `checkOpNoThrow()` path below API 29, but this branch has only static/lint verification in this workspace. |
 | **High** | Selective app recognition and Samsung window layering need device validation | YouTube, Instagram, Facebook, Snapchat, and X view identifiers/content descriptions plus Samsung AccessibilityWindowInfo layers can change by app, language, One UI, and Android version. Pure classification and geometry tests cannot prove live section recognition or pop-up z-order. |
 | **High** | No production signing/release process | Release APK is unsigned; no keystore indirection, CI, store configuration, or release checklist exists. Production delivery is not reproducible. |
-| **High** | Main-thread period-wide usage query | Every 10 seconds, `ScreenTimeDisplay.queryMs()` scans usage events from 3:00 AM on the main looper; a newly attached blocked-app check-in also reads it once. Large histories or slow providers can delay overlay UI/service responsiveness and risk ANRs. Calendar queries also run on the main thread. |
+| **High** | Main-thread period-wide usage query | Every 10 seconds, `ScreenTimeDisplay.queryMs()` scans usage events from 3:00 AM on the main looper; a newly attached blocked-app check-in also reads it once. Large histories or slow providers can delay overlay UI/service responsiveness and risk ANRs. |
 | **High** | Sensitive platform capabilities lack production/privacy hardening | Always-on-top UI, usage history, calendar data, boot restart, and special-use foreground service have no onboarding rationale, privacy policy/store declaration, or denial/revocation recovery in repo. This is a policy and trust risk. |
 | **Medium** | Overlay failures are not contained | `WindowManager.addView()` and service startup have no `SecurityException`/bad-token handling. Permission revocation or vendor behavior can crash the service instead of showing recovery UI. |
 | **Medium** | Screen-time correctness is unverified | The algorithm uses raw event IDs, inferred period-start state, a 3:00 AM boundary, and no tests. Changes can easily double-count/miss intervals. |
@@ -727,7 +731,7 @@ Future work on screen-time behavior should read `OverlayService.kt`, `AndroidMan
 | **Medium** | Compose dependency alignment is surprising | BOM `2024.09.00` constrains UI `1.7.0`, but resolved UI is `1.9.2` while Material 3 is `1.3.0`. Builds pass, but future dependency changes can expose binary/UI incompatibility. |
 | **Medium** | Active overlay accessibility/responsiveness | Non-focusable full-screen window, fixed 74sp timer/top content, untranslated hardcoded strings, left/right layout attributes, and lint keyboard warning can break large-font, keyboard/switch, RTL, or small-screen use. |
 | **Medium** | Automatic full-screen interruption has weak escape behavior | It covers all apps and intercepts touches, while close is disabled for five seconds and normal Back is not owned by the overlay window. Bubble-opened check-ins can close immediately, but an automatic-flow UI regression can still trap input until the service is stopped externally. |
-| **Low** | Calendar import semantics are lossy/stale | Import removes all lines after an exact header, persists a day-specific snapshot, and turns header/events into goal rows. Provider exceptions look like an empty calendar. |
+| **Low** | Legacy calendar-text cleanup is intentionally manual | Old versions may have persisted a `Calendar Today` section. It is hidden from checklist parsing, but removing it from the editable text requires an explicit action and Save so possible later manual text is not deleted silently. |
 | **Low** | Goal identity collisions | Normalization strips punctuation/diacritics and truncates display to eight rows, so distinct goals can share completion state or disappear from overlay without warning. |
 | **Low** | Theme definitions can drift | Compose and platform overlays share the Soft Graphite roles but define their values in Kotlin and XML separately; future palette changes must keep both definitions aligned. |
 | **Low** | No crash/analytics diagnostics | Runtime failures are mostly invisible beyond a `TimeHUD` debug log message; production diagnosis would be difficult. |
@@ -765,7 +769,7 @@ Do not treat this list as work already completed.
 ### Critical fixes
 
 1. Exercise the guarded usage-access check on API 24/28/29+ devices and add regression coverage for both platform branches.
-2. Move usage-event and calendar-provider queries off the main thread and isolate/test the screen-time state machine, including 3:00 AM, first-event, currently interactive, restart, and bucket-boundary cases.
+2. Move usage-event queries off the main thread and isolate/test the screen-time state machine, including 3:00 AM, first-event, currently interactive, restart, and bucket-boundary cases.
 3. Catch overlay/service permission failures and provide a recovery path when special access is revoked while running.
 4. Define a production signing and secret-management process; do not distribute unsigned release artifacts.
 
@@ -773,7 +777,7 @@ Do not treat this list as work already completed.
 
 1. Add runtime `POST_NOTIFICATIONS` handling with clear explanation and denial behavior.
 2. Establish one observable goal source so service removals and activity edits cannot overwrite each other.
-3. Separate imported calendar agenda data from manually editable/checkable goal text, and surface query errors distinctly from no events.
+3. Add device/Compose coverage for the separated calendar agenda states, including grant, denial, revocation, empty calendars, provider failure, Refresh, and legacy-text cleanup.
 4. Align the Compose BOM/direct dependencies intentionally and document why versions differ.
 5. Add clear first-run disclosure/privacy documentation for usage, overlay, calendar, boot, and foreground-service behavior.
 
@@ -805,7 +809,7 @@ Do not treat this list as work already completed.
 ### Optional future enhancements
 
 1. Structured goals with stable IDs instead of normalized text keys.
-2. Automatic daily calendar refresh without mixing calendar items into persisted goal text.
+2. Automatic midnight refresh while the Goals activity remains continuously open; current data refreshes on resume, manual Refresh, and each overlay opening.
 3. Optional encryption or broader settings backup only if separately designed; the current manual format intentionally contains goals only.
 4. Configurable overlay position, size, colors, quiet periods, and reminder interval.
 5. Cloud sync/accounts only if explicitly designed later; none exists now, and adding it would require a new security, privacy, auth, offline, and migration architecture.

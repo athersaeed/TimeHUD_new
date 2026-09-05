@@ -114,7 +114,7 @@ app/
   - Only in-app activity
   - Compose setup/control screen
   - Permission status and special-access intents
-  - Goal editing/saving and calendar import initiation
+  - Goal editing/saving and live calendar-agenda presentation
   - HUD start/stop controls
 
 - `OverlayService.kt`
@@ -184,8 +184,7 @@ UsageStatsManager + PowerManager
 
 Calendar Provider
   -> CalendarAgenda
-  -> optional import in MainActivity
-  -> live agenda in OverlayService
+  -> live read-only agenda in MainActivity and OverlayService
 
 OverlayService lifecycle
   -> OverlayServiceStateStore StateFlow
@@ -248,7 +247,9 @@ Preserve these unless the request explicitly changes them.
 
 - Calendar access is optional and read-only.
 - The HUD must remain usable without calendar permission.
-- Live overlay agenda and manually imported calendar text are distinct concepts, even though current behavior can mix imported text into goals.
+- Calendar events stay separate from manually editable and checkable goal text.
+- The Goals page and active overlay query a live, read-only agenda off the main thread.
+- Legacy `Calendar Today` goal sections are excluded from checklist parsing and can be removed explicitly from the Goals page before saving.
 - Do not request write-calendar access unless explicitly required.
 - Do not log private calendar titles or goal text.
 
@@ -287,10 +288,9 @@ Preserve these unless the request explicitly changes them.
 These were confirmed in the 2026-07-11 audit. Treat them as context, not automatic scope. Verify the current source before relying on them because later changes may have fixed them.
 
 - Usage-access checks in `MainActivity.kt` and `BootReceiver.kt` call API-29 `unsafeCheckOpNoThrow()` while min SDK is 24; the baseline `lintDebug` therefore fails and API 24-28 are unsafe.
-- Usage-history aggregation and calendar queries run synchronously on the main thread.
+- Usage-history aggregation runs synchronously on the main thread.
 - `POST_NOTIFICATIONS` is declared but has no runtime permission flow.
 - Activity goal-editor state and service-side goal removal can diverge; a later activity save can restore a removed goal.
-- Calendar import can turn the `Calendar Today` header and event lines into checkable goals and can remain stale on later days.
 - Restarting the service can immediately show the active overlay because the last triggered bucket is not persisted.
 - Release output is unsigned; production signing, CI release automation, store metadata, privacy documentation, analytics, and crash reporting are absent.
 - The app uses privacy-sensitive capabilities: overlay access, usage history, calendar read access, boot restart, notifications, and a special-use foreground service.
