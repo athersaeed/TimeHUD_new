@@ -47,7 +47,6 @@ class OverlayService : Service() {
         private const val CHANNEL_ID = "timehud_overlay"
         private const val NOTIFICATION_ID = 1
         private const val TICK_INTERVAL_MS = 10_000L
-        private const val FIVE_MINUTES_MS = 5 * 60 * 1_000L
         private const val BUBBLE_SIZE_DP = 64
         private const val BUBBLE_EDGE_MARGIN_DP = 8
         private const val BUBBLE_DEFAULT_TOP_DP = 80
@@ -58,13 +57,16 @@ class OverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var handler: Handler
+    private lateinit var foregroundAppMonitor: ForegroundAppMonitor
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private var passiveView: View? = null
     private var activeView: View? = null
     private var activeContentController: ActiveOverlayContentController? = null
+    private var activeOverlayTrigger: ActiveOverlayTrigger? = null
     private var isActiveState = false
     private var isBlockingOverlayVisible = false
+    private var isDrivingAppActive = false
     private var lastTriggeredBucket: Long = -1L
     private var latestTimeText: String = "…"
     private var overlayFailed = false
@@ -73,6 +75,7 @@ class OverlayService : Service() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         handler = Handler(Looper.getMainLooper())
+        foregroundAppMonitor = ForegroundAppMonitor(this)
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
@@ -84,15 +87,25 @@ class OverlayService : Service() {
         showPassiveOverlay()
         serviceScope.launch {
             while (isActive && !overlayFailed) {
-                val totalMs = withContext(Dispatchers.IO) {
-                    try {
-                        ScreenTimeDisplay.queryMs(this@OverlayService)
-                    } catch (_: RuntimeException) {
-                        null
-                    }
+                val sample = withContext(Dispatchers.IO) {
+                    HudRuntimeSample(
+                        totalScreenTimeMs = try {
+                            ScreenTimeDisplay.queryMs(this@OverlayService)
+                        } catch (_: RuntimeException) {
+                            null
+                        },
+                        drivingAppActive = try {
+                            foregroundAppMonitor.isDrivingAppActive()
+                        } catch (_: RuntimeException) {
+                            null
+                        }
+                    )
                 }
-                // Keep the last successful reading on provider failure.
-                if (!overlayFailed) totalMs?.let(::updateScreenTime)
+                // Keep the last successful readings on provider failure.
+                if (!overlayFailed) {
+                    sample.drivingAppActive?.let(::updateDrivingAppState)
+                    sample.totalScreenTimeMs?.let(::updateScreenTime)
+                }
                 delay(TICK_INTERVAL_MS)
             }
         }
@@ -115,6 +128,7 @@ class OverlayService : Service() {
         handler.removeCallbacksAndMessages(null)
         activeContentController?.dispose()
         activeContentController = null
+        activeOverlayTrigger = null
         removeOverlay(passiveView)
         removeOverlay(activeView)
         OverlayServiceStateStore.markStopped()
@@ -305,7 +319,9 @@ class OverlayService : Service() {
 
     private fun showActiveOverlay(timeText: String, trigger: ActiveOverlayTrigger) {
         if (isActiveState || isBlockingOverlayVisible || overlayFailed) return
+        if (trigger == ActiveOverlayTrigger.FIVE_MINUTE_BUCKET && isDrivingAppActive) return
         isActiveState = true
+        activeOverlayTrigger = trigger
 
         removeOverlay(passiveView)
         passiveView = null
@@ -345,6 +361,7 @@ class OverlayService : Service() {
     private fun dismissActiveOverlay() {
         activeContentController?.dispose()
         activeContentController = null
+        activeOverlayTrigger = null
         removeOverlay(activeView)
         activeView = null
         isActiveState = false
@@ -379,10 +396,21 @@ class OverlayService : Service() {
     private fun updateScreenTime(totalMs: Long) {
         latestTimeText = ScreenTimeDisplay.format(totalMs)
         if (!isActiveState) updatePassiveText(latestTimeText)
-        val currentBucket = totalMs / FIVE_MINUTES_MS
-        if (currentBucket > 0 && currentBucket != lastTriggeredBucket) {
-            lastTriggeredBucket = currentBucket
+        val decision = FiveMinuteOverlayPolicy.evaluate(
+            totalScreenTimeMs = totalMs,
+            lastObservedBucket = lastTriggeredBucket,
+            drivingAppActive = isDrivingAppActive
+        )
+        lastTriggeredBucket = decision.observedBucket
+        if (decision.shouldShowCheckIn) {
             showActiveOverlay(latestTimeText, ActiveOverlayTrigger.FIVE_MINUTE_BUCKET)
+        }
+    }
+
+    private fun updateDrivingAppState(active: Boolean) {
+        isDrivingAppActive = active
+        if (active && activeOverlayTrigger == ActiveOverlayTrigger.FIVE_MINUTE_BUCKET) {
+            dismissActiveOverlay()
         }
     }
 
@@ -398,6 +426,7 @@ class OverlayService : Service() {
         overlayFailed = true
         activeContentController?.dispose()
         activeContentController = null
+        activeOverlayTrigger = null
         removeOverlay(passiveView)
         removeOverlay(activeView)
         passiveView = null
