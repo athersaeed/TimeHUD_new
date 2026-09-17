@@ -2,6 +2,7 @@ package com.boringutils.timehud
 
 import android.Manifest
 import android.app.AppOpsManager
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -9,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -686,6 +688,7 @@ private fun PermissionsPage(
     onRequestCalendar: () -> Unit
 ) {
     val allRequiredPermissionsGranted = overlayGranted && usageGranted
+    val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -706,6 +709,19 @@ private fun PermissionsPage(
             color = TimeHudColors.textSecondary,
             fontSize = 13.sp
         )
+        Spacer(modifier = Modifier.height(14.dp))
+        OutlinedButton(onClick = {
+            try {
+                context.startActivity(Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse(context.getString(R.string.privacy_policy_url))
+                ))
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(context, R.string.privacy_policy_no_browser, Toast.LENGTH_LONG).show()
+            }
+        }) {
+            Text(stringResource(R.string.privacy_policy))
+        }
         Spacer(modifier = Modifier.height(22.dp))
 
         PermissionCard(

@@ -202,4 +202,7 @@
     <string name="brick_mode_day_friday">Fri</string>
     <string name="brick_mode_day_saturday">Sat</string>
     <string name="brick_mode_day_sunday">Sun</string>
+    <string name="privacy_policy">Privacy policy</string>
+    <string name="privacy_policy_url" translatable="false">https://timehud.athers.org/privacy</string>
+    <string name="privacy_policy_no_browser">No browser is available. Open the privacy policy from the TimeHUD Play Store listing on another device.</string>
 </resources>

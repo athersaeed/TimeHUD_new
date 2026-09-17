@@ -523,13 +523,15 @@ The debug APK uses the local Android debug certificate and is intended only for 
 
 For unattended post-commit transfers, install this PC's existing default SSH public key on the Termux SSH server once with `ssh-copy-id -p 8022 u0_a320@100.124.117.126`. That one-time command prompts for the phone's SSH password; subsequent hook-driven `scp` commands should authenticate with the key instead of waiting for a password.
 
+The Permissions screen includes a Privacy policy button above its permission cards. It opens the hosted policy in an external browser; the app does not embed a webview or add network access. The public policy URL must be accessible before a Play release is submitted.
+
 ## 14. Build variants and release process
 
 - Modules: only `:app` (`settings.gradle.kts:26`).
 - Namespace: `com.boringutils.timehud` (`app/build.gradle.kts:7`).
 - Application ID for all variants: `com.boringutils.timehud` (`app/build.gradle.kts:15`).
 - Identity migration: this replaces the former `com.example.timehud.cloud` application ID. Android treats the new ID as a different installed application, so preferences, goal data, granted special/runtime permissions, and HUD startup state from an older installation do not transfer automatically. The old and new packages can coexist until the old app is uninstalled.
-- Version: code `4`, name `1.3` (`app/build.gradle.kts:18-19`).
+- Version: code `6`, name `1.4` (`app/build.gradle.kts:18-19`).
 - Variants: default `debug` and `release`; no product flavors or environment-specific source/config values.
 - Release enables R8 code minification and resource shrinking and uses optimized default ProGuard rules plus an unchanged template `proguard-rules.pro` (`app/build.gradle.kts:24-32`).
 - No signing configuration exists. `assembleRelease` produces `app/build/outputs/apk/release/app-release-unsigned.apk`.
