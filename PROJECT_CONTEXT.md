@@ -2,7 +2,7 @@
 
 Audit date: 2026-07-11
 
-Last implementation update: 2026-09-05
+Last implementation update: 2026-09-17
 
 This document is a source-based technical handoff for the checked-in Android project. It describes the current repository, not a proposed architecture. Generated content under `app/build/`, `.gradle/`, `.gradle-work/`, and `.kotlin/` was ignored except for verification reports and build artifacts produced during this audit.
 
@@ -13,7 +13,7 @@ This document is a source-based technical handoff for the checked-in Android pro
 - The Gradle project name, custom launcher icon, launcher label, and on-screen title are all branded **TimeHUD** (`settings.gradle.kts:25`, `app/src/main/res/drawable/ic_launcher_foreground.xml`, `app/src/main/res/values/strings.xml:2`, `app/src/main/java/com/boringutils/timehud/MainActivity.kt`).
 - TimeHUD is a native Android focus/accountability utility. It measures how long the device screen has been interactive since a 3:00 AM daily boundary, displays the total in a movable always-on-top bubble, and periodically replaces it with a full-screen goal check-in (`OverlayService.kt`).
 - The likely target user is someone who wants persistent awareness of screen time and repeated reminders of daily and longer-term goals. This is a reasonable inference from the default goals and UI copy, not an explicitly documented market definition (`GoalSettings.kt:28-34`, `overlay_active.xml:88-103`).
-- The main problem it addresses is that ordinary screen-time information is easy to ignore. TimeHUD keeps the total available in a movable bubble over other apps and interrupts at five-minute usage buckets with goals and an optional calendar agenda.
+- The main problem it addresses is that ordinary screen-time information is easy to ignore. TimeHUD keeps the total available in a movable bubble over other apps and interrupts at a configurable 1–60 minute usage interval with goals and an optional calendar agenda. The default interval is five minutes.
 
 ### Primary user journey
 
@@ -23,8 +23,8 @@ This document is a source-based technical handoff for the checked-in Android pro
 4. Optionally grant calendar access to show today's visible events in a separate, live, read-only agenda on the Goals page and active check-in (`MainActivity.kt`, `CalendarAgenda.kt`, `ActiveOverlayContentController.kt`).
 5. Save goals or press **Start HUD**, which saves the current fields and starts `OverlayService` as a foreground service (`MainActivity.kt`).
 6. A circular timer bubble appears over other apps and updates every 10 seconds. It can be dragged anywhere within the screen; the last position is restored when the bubble returns (`OverlayService.kt`, `BubblePositioning.kt`, `overlay_passive.xml`).
-7. Once per newly observed five-minute total-screen-time bucket, a touchable full-screen overlay appears. It shows the time, up to five live calendar events, and up to eight short- or long-term goal lines (`OverlayService.kt:161-212`, `OverlayService.kt:236-260`, `OverlayService.kt:491-509`, `OverlayService.kt:528-532`). Because `lastTriggeredBucket` begins at `-1`, starting/restarting the service after at least five minutes of accumulated screen time can trigger this overlay immediately.
-8. Tapping the bubble opens the same full-screen check-in on demand and enables its close button immediately. Automatically triggered five-minute check-ins keep the five-second close delay. Every shared check-in—including app-control blockers—offers an immediately available **Usage restrictions** shortcut that dismisses the overlay and opens the Usage restrictions destination without duplicating the activity. In the check-in, the user can switch between short- and long-term goals, tap a goal, mark it done for today, remove it, or cancel. Completion shows a brief animation (`OverlayService.kt`, `ActiveOverlayContentController.kt`, `overlay_active.xml`).
+7. Once per newly observed total-screen-time bucket at the persisted 1–60 minute interval, a touchable full-screen overlay appears. The Goals page provides a discrete slider and defaults existing users to five minutes. The overlay shows the time, up to five live calendar events, and up to eight short- or long-term goal lines. Because `lastTriggeredBucket` begins at `-1`, starting/restarting the service after at least one configured interval of accumulated screen time can trigger this overlay immediately. Changing the interval while the service runs re-baselines the current bucket rather than opening a check-in immediately.
+8. Tapping the bubble opens the same full-screen check-in on demand and enables its close button immediately. Automatically triggered periodic check-ins keep the five-second close delay. Every shared check-in—including app-control blockers—offers an immediately available **Usage restrictions** shortcut that dismisses the overlay and opens the Usage restrictions destination without duplicating the activity. In the check-in, the user can switch between short- and long-term goals, tap a goal, mark it done for today, remove it, or cancel. Completion shows a brief animation (`OverlayService.kt`, `ActiveOverlayContentController.kt`, `overlay_active.xml`).
 9. The persistent notification opens `MainActivity`. **Stop HUD** stops the service and clears the restart preference (`OverlayService.kt:100-125`, `MainActivity.kt:130-132`).
 10. If the HUD was marked active, boot or package replacement attempts to restart it when overlay and usage permissions are still present (`BootReceiver.kt:17-35`).
 11. Open **App usage** to refresh a top-five horizontal bar chart and a full longest-first list of per-app foreground time since the same 3:00 AM boundary. This history is read locally through `UsageStatsManager` and is not persisted or uploaded (`ui/usage/`).
@@ -37,8 +37,8 @@ This document is a source-based technical handoff for the checked-in Android pro
 - Persistent draggable screen-time bubble with tap-to-open check-in behavior and saved position.
 - Foreground service and ongoing notification.
 - Screen-interactive-time calculation with a 3:00 AM boundary.
-- Five-minute-bucket full-screen check-ins.
-- Direct Usage restrictions shortcut from bubble-opened, automatic five-minute, and app-control check-ins.
+- Configurable 1–60 minute bucket full-screen check-ins.
+- Direct Usage restrictions shortcut from bubble-opened, automatic periodic, and app-control check-ins.
 - Editable short-term and long-term goal lists.
 - Hamburger navigation with Goals as the default page, App usage, Usage restrictions, and App limits as secondary pages, and Permissions anchored at the bottom of the drawer.
 - Per-app foreground-time chart and descending list using the 3:00 AM daily boundary.
@@ -116,7 +116,7 @@ SharedPreferences (goal text)
 UsageStatsManager events + PowerManager.isInteractive
   -> OverlayService.queryScreenTimeMs()
   -> 10-second Handler tick
-  -> passive TextView and five-minute bucket trigger
+  -> passive TextView and configurable periodic bucket trigger
 
 UsageStatsManager foreground/background events
   -> AppUsageRepository on Dispatchers.IO
@@ -152,7 +152,7 @@ OverlayService lifecycle
 - An `ON_RESUME` observer rechecks overlay, usage, and calendar permissions after system screens return (`MainActivity.kt:181-191`).
 - `rememberSaveable` restores the selected destination, unsaved goal edits, and status across ordinary activity recreation. App-usage loading/results live in an activity-scoped `AppUsageViewModel`; other screens still have no ViewModel or saved-state schema.
 - `OverlayServiceStateStore` is process-memory only. `StartupPreferences` separately persists the user's active-HUD intent for boot/restart behavior (`OverlayServiceState.kt`, `StartupPreferences.kt`).
-- Overlay state (`isActiveState`, selected goal mode, current view, five-minute bucket) exists only in service fields and is lost if the service/process is recreated (`OverlayService.kt:48-53`).
+- Overlay state (`isActiveState`, selected goal mode, current view, periodic bucket) exists only in service fields and is lost if the service/process is recreated (`OverlayService.kt`). The selected interval is persisted separately in `CheckInSettings`.
 
 ### Business logic, errors, and loading
 
@@ -250,7 +250,7 @@ The overlay entries below are service-owned window layers rather than Android na
 | Goal Backup panel | Section within setup/control screen | `ui/backup/GoalBackupPanel.kt`, `MainActivity.kt` | None | Appears immediately below goal settings | Export current editor text; open and validate a JSON backup | Activity Result APIs, `GoalBackupFormat`, `GoalBackupStorage`, current editor state |
 | Replace Goals dialog | Compose `AlertDialog`; no route | `ui/backup/GoalBackupPanel.kt` | None | Appears only after a complete valid backup is read | Replace both saved/editor goal groups or cancel | Pending validated goal text and `GoalSettings` |
 | Screen-time bubble | No route; `WindowManager` overlay created by `OverlayService.showPassiveOverlay()` | `OverlayService.kt`, `BubblePositioning.kt`, `overlay_passive.xml` | Saved x/y position | Appears when the service starts and whenever active check-in closes | Drag to reposition; tap to open the active check-in | `UsageStatsManager`, `PowerManager`, `SharedPreferences` |
-| Active goal check-in | No route; `showActiveOverlay()` from a bubble tap or once per observed five-minute bucket, or window-aware accessibility-overlay pieces for blocked apps | `ActiveOverlayContentController.kt`, `OverlayService.kt`, `blocking/TimeHudAccessibilityService.kt`, `overlay_active.xml` | None | Temporarily replaces the bubble or covers only the visible blocked-app regions while leaving higher Samsung Pop-up View windows exposed | Switch short/long goals and tap a goal; HUD closes return to the previous app, while a blocked-app close unlocks after five seconds and returns Home | Usage total, `GoalSettings`, `GoalCompletionStore`, live `CalendarAgenda`, accessibility global Home action |
+| Active goal check-in | No route; `showActiveOverlay()` from a bubble tap or once per observed configurable periodic bucket, or window-aware accessibility-overlay pieces for blocked apps | `ActiveOverlayContentController.kt`, `OverlayService.kt`, `blocking/TimeHudAccessibilityService.kt`, `overlay_active.xml` | None | Temporarily replaces the bubble or covers only the visible blocked-app regions while leaving higher Samsung Pop-up View windows exposed | Switch short/long goals and tap a goal; HUD closes return to the previous app, while a blocked-app close unlocks after five seconds and returns Home | Usage total, `GoalSettings`, `GoalCompletionStore`, live `CalendarAgenda`, accessibility global Home action |
 | Goal completion modal | Child layer in active overlay (`layout_completion_modal`) | `OverlayService.kt:339-374`, `overlay_active.xml:162-227` | None | Opens when an incomplete goal row is tapped | Done for today, remove goal, cancel, tap scrim to dismiss | Active goal and completion/preferences stores |
 | Completion celebration | Transient child layer in active overlay | `OverlayService.kt:376-489`, `overlay_active.xml:132-160` | None | Runs after marking a task complete | None | Current goal-row view |
 | Overlay permission settings | External `Settings.ACTION_MANAGE_OVERLAY_PERMISSION` | `MainActivity.kt:106-113` | N/A | Opened from Overlay Permission card | User grants/denies special access | Android Settings |
@@ -299,7 +299,7 @@ App icon or notification
        -> Start HUD -> OverlayService
             -> draggable screen-time bubble
                  -> tap -> active full-screen check-in
-            -> new five-minute usage bucket -> active full-screen check-in
+            -> new configured usage bucket -> active full-screen check-in
                  -> goal tap -> completion modal -> done/remove/cancel
                  -> close after 5 seconds -> screen-time bubble
 App limit/supported section detected -> shared goal check-in over visible blocked regions
@@ -639,7 +639,7 @@ The two API compatibility errors recorded in the 2026-07-11 runs were later fixe
 
 ### Coverage gaps
 
-The most important untested behavior is also the most failure-prone: total screen-time aggregation and boundary cases; five-minute triggering; foreground-service lifecycle/restart; overlay add/remove behavior; permission grant/revoke; real-device/vendor `UsageStatsManager` event completeness and label visibility; real YouTube/Instagram/Facebook/Snapchat/X accessibility-tree signals; Samsung Pop-up View and split-screen layer/bounds behavior; accessibility-service revocation; notification behavior; boot receiver decision logic; real SharedPreferences date rollover; calendar-provider failures; active modal/accessibility behavior; state synchronization between the activity and service; and actual system-picker/`ContentResolver` backup UI flows. App-time aggregation, blocking decisions/geometry, and backup schema/text behavior are unit-tested, but platform providers and compiled device tests still need device coverage.
+The most important untested behavior is also the most failure-prone: total screen-time aggregation and boundary cases; configurable periodic triggering; foreground-service lifecycle/restart; overlay add/remove behavior; permission grant/revoke; real-device/vendor `UsageStatsManager` event completeness and label visibility; real YouTube/Instagram/Facebook/Snapchat/X accessibility-tree signals; Samsung Pop-up View and split-screen layer/bounds behavior; accessibility-service revocation; notification behavior; boot receiver decision logic; real SharedPreferences date rollover; calendar-provider failures; active modal/accessibility behavior; state synchronization between the activity and service; and actual system-picker/`ContentResolver` backup UI flows. App-time aggregation, blocking decisions/geometry, and backup schema/text behavior are unit-tested, but platform providers and compiled device tests still need device coverage.
 
 ## 16. Current implementation status
 
@@ -679,7 +679,7 @@ The most important untested behavior is also the most failure-prone: total scree
 
 - Save/Start reconciles each goal draft against its saved baseline and the current preferences. Overlay deletions are applied without discarding unrelated draft additions or rewritten lines; duplicate removals are count-aware. The baseline survives activity recreation and resets after save/import. The editor can still show the old line until Save/Start.
 - Older saved text can still contain a reserved `Calendar Today` section. It is no longer parsed into checklist rows; the Goals page exposes an explicit cleanup action because automatically deleting everything after that legacy marker could discard later manual edits.
-- Restarting the service after five minutes of accumulated usage can immediately open the active overlay because the last bucket is not persisted.
+- Restarting the service after one configured interval of accumulated usage can immediately open the active overlay because the last bucket is not persisted.
 - Goal normalization can make visually different goals share one completion key.
 
 ## 17. Important files
@@ -749,7 +749,7 @@ These rules reflect the existing small architecture while addressing its actual 
 
 1. Do not describe the current app as MVVM/Clean Architecture. Preserve the simple single-module structure for small changes; introduce layers only when a real second data source/screen warrants them.
 2. Keep platform-heavy overlay/usage logic out of composables. `MainActivity` should coordinate UI; `OverlayService` and focused helpers should own platform calls.
-3. Treat `OverlayService` as a high-risk runtime component. Preserve foreground startup timing, passive/active view cleanup, `START_STICKY` intent, boot preference semantics, and five-minute bucket behavior unless a change explicitly redesigns them.
+3. Treat `OverlayService` as a high-risk runtime component. Preserve foreground startup timing, passive/active view cleanup, `START_STICKY` intent, boot preference semantics, and configurable periodic bucket behavior unless a change explicitly redesigns them.
 4. Fix and test API-level branching whenever adding platform APIs. Every call must be valid from min SDK 24 or the min SDK must be deliberately changed in a separate approved change.
 5. For new Compose screens, create a `ui/<feature>/` package instead of making `MainActivity.kt` larger. There is currently no router; add a navigation dependency/graph only when a second true in-app destination exists, centralize route names/arguments, and test launch/back behavior.
 6. There are no ViewModels today. For new screen state that must survive recreation or perform async work, use an AndroidX `ViewModel` with an immutable state data class and `StateFlow`; do not add more process-global mutable UI singletons.
@@ -797,8 +797,8 @@ Do not treat this list as work already completed.
 
 ### User-experience improvements
 
-1. Explain the 3:00 AM reset and five-minute interruption behavior in-app.
-2. Let users configure reminder cadence/reset boundary or temporarily pause the HUD, if product intent supports it.
+1. Explain the 3:00 AM reset and configurable interruption behavior in-app.
+2. Let users configure the reset boundary or temporarily pause the HUD, if product intent supports it.
 3. Provide explicit save/validation feedback and warn when more than eight goals will be hidden.
 4. Make the active overlay safely dismissible through accessible Back/keyboard/switch controls while preserving the intended check-in.
 5. Extract/localize remaining strings and dimensions, then add screenshot coverage for the fixed Soft Graphite theme across representative screens and font scales.

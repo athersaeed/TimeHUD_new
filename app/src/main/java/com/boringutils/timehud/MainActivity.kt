@@ -36,6 +36,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -74,6 +76,7 @@ import com.boringutils.timehud.ui.usage.AppUsageScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private var requestedDestination by mutableStateOf<TimeHudDestination?>(null)
@@ -236,6 +239,9 @@ fun TimeHUDScreen(
     var savedShortTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.shortTermGoals) }
     var savedLongTermGoals by rememberSaveable { mutableStateOf(initialGoalConfig.longTermGoals) }
     var goalsSaved by rememberSaveable { mutableStateOf(false) }
+    var checkInIntervalMinutes by rememberSaveable {
+        mutableStateOf(CheckInSettings.loadIntervalMinutes(context))
+    }
     var calendarAgendaUiState by remember {
         mutableStateOf<CalendarAgendaUiState>(
             if (calendarGranted) {
@@ -429,6 +435,11 @@ fun TimeHUDScreen(
     ) {
         when (selectedDestination) {
             TimeHudDestination.GOALS -> GoalsPage(
+                checkInIntervalMinutes = checkInIntervalMinutes,
+                onCheckInIntervalChange = { intervalMinutes ->
+                    checkInIntervalMinutes = intervalMinutes
+                    CheckInSettings.saveIntervalMinutes(context, intervalMinutes)
+                },
                 shortTermGoals = shortTermGoals,
                 onShortTermGoalsChange = {
                     shortTermGoals = it
@@ -546,6 +557,8 @@ fun TimeHUDScreen(
 
 @Composable
 private fun GoalsPage(
+    checkInIntervalMinutes: Int,
+    onCheckInIntervalChange: (Int) -> Unit,
     shortTermGoals: String,
     onShortTermGoalsChange: (String) -> Unit,
     longTermGoals: String,
@@ -579,6 +592,8 @@ private fun GoalsPage(
         Spacer(modifier = Modifier.height(20.dp))
 
         GoalSettingsPanel(
+            checkInIntervalMinutes = checkInIntervalMinutes,
+            onCheckInIntervalChange = onCheckInIntervalChange,
             shortTermGoals = shortTermGoals,
             onShortTermGoalsChange = onShortTermGoalsChange,
             longTermGoals = longTermGoals,
@@ -890,6 +905,8 @@ private fun TodayAgendaPanel(
 
 @Composable
 fun GoalSettingsPanel(
+    checkInIntervalMinutes: Int,
+    onCheckInIntervalChange: (Int) -> Unit,
     shortTermGoals: String,
     onShortTermGoalsChange: (String) -> Unit,
     longTermGoals: String,
@@ -916,7 +933,7 @@ fun GoalSettingsPanel(
                     color = TimeHudColors.textPrimary
                 )
                 Text(
-                    text = "Shown on the 5 minute screen",
+                    text = stringResource(R.string.check_in_interval_description),
                     fontSize = 12.sp,
                     color = TimeHudColors.textSecondary
                 )
@@ -926,6 +943,55 @@ fun GoalSettingsPanel(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = if (saved) TimeHudColors.statusPositive else TimeHudColors.textEmphasis
+            )
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.check_in_interval_label),
+                modifier = Modifier.weight(1f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = TimeHudColors.textPrimary
+            )
+            Text(
+                text = pluralStringResource(
+                    R.plurals.check_in_interval_value,
+                    checkInIntervalMinutes,
+                    checkInIntervalMinutes
+                ),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TimeHudColors.textEmphasis
+            )
+        }
+
+        Slider(
+            value = checkInIntervalMinutes.toFloat(),
+            onValueChange = { onCheckInIntervalChange(it.roundToInt()) },
+            valueRange = CheckInSettings.MIN_INTERVAL_MINUTES.toFloat()..
+                CheckInSettings.MAX_INTERVAL_MINUTES.toFloat(),
+            steps = CheckInSettings.MAX_INTERVAL_MINUTES -
+                CheckInSettings.MIN_INTERVAL_MINUTES - 1,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.check_in_interval_minimum),
+                modifier = Modifier.weight(1f),
+                fontSize = 11.sp,
+                color = TimeHudColors.textSecondary
+            )
+            Text(
+                text = stringResource(R.string.check_in_interval_maximum),
+                fontSize = 11.sp,
+                color = TimeHudColors.textSecondary
             )
         }
 

@@ -31,29 +31,33 @@ internal object DrivingAppPolicy {
         "net.osmand.plus"
     )
 
-    fun shouldSuppressFiveMinuteOverlay(
+    fun shouldSuppressPeriodicOverlay(
         packageName: String?,
         isMapsCategory: Boolean
     ): Boolean = packageName != null &&
         (packageName in knownNavigationPackages || isMapsCategory)
 }
 
-internal data class FiveMinuteBucketDecision(
+internal data class CheckInBucketDecision(
     val observedBucket: Long,
     val shouldShowCheckIn: Boolean
 )
 
-internal object FiveMinuteOverlayPolicy {
-    private const val FIVE_MINUTES_MS = 5 * 60 * 1_000L
+internal object CheckInOverlayPolicy {
+    fun bucketFor(totalScreenTimeMs: Long, intervalMinutes: Int): Long {
+        val safeIntervalMinutes = CheckInSettings.normalizeIntervalMinutes(intervalMinutes)
+        return totalScreenTimeMs / (safeIntervalMinutes * 60_000L)
+    }
 
     fun evaluate(
         totalScreenTimeMs: Long,
         lastObservedBucket: Long,
-        drivingAppActive: Boolean
-    ): FiveMinuteBucketDecision {
-        val currentBucket = totalScreenTimeMs / FIVE_MINUTES_MS
+        drivingAppActive: Boolean,
+        intervalMinutes: Int = CheckInSettings.DEFAULT_INTERVAL_MINUTES
+    ): CheckInBucketDecision {
+        val currentBucket = bucketFor(totalScreenTimeMs, intervalMinutes)
         val isNewBucket = currentBucket > 0L && currentBucket != lastObservedBucket
-        return FiveMinuteBucketDecision(
+        return CheckInBucketDecision(
             observedBucket = if (isNewBucket) currentBucket else lastObservedBucket,
             shouldShowCheckIn = isNewBucket && !drivingAppActive
         )
@@ -111,7 +115,7 @@ internal class ForegroundAppMonitor(context: Context) {
     }
 
     fun isDrivingPackage(packageName: String?): Boolean {
-        return DrivingAppPolicy.shouldSuppressFiveMinuteOverlay(
+        return DrivingAppPolicy.shouldSuppressPeriodicOverlay(
             packageName = packageName,
             isMapsCategory = packageName?.let(::isMapsCategory) == true
         )

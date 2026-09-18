@@ -36,7 +36,7 @@ internal enum class ActiveOverlayTrigger(
     val returnsHomeOnClose: Boolean
 ) {
     BUBBLE_TAP(requiresCloseDelay = false, returnsHomeOnClose = false),
-    FIVE_MINUTE_BUCKET(requiresCloseDelay = true, returnsHomeOnClose = false),
+    PERIODIC_CHECK_IN(requiresCloseDelay = true, returnsHomeOnClose = false),
     APP_BLOCK(requiresCloseDelay = true, returnsHomeOnClose = true)
 }
 
@@ -70,6 +70,7 @@ class OverlayService : Service() {
     private var accessibilityWindowDrivingSignal: Boolean? = null
     private var isDrivingAppActive = false
     private var lastTriggeredBucket: Long = -1L
+    private var checkInIntervalMinutes = CheckInSettings.DEFAULT_INTERVAL_MINUTES
     private var latestTimeText: String = "…"
     private var overlayFailed = false
 
@@ -78,6 +79,7 @@ class OverlayService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         handler = Handler(Looper.getMainLooper())
         foregroundAppMonitor = ForegroundAppMonitor(this)
+        checkInIntervalMinutes = CheckInSettings.loadIntervalMinutes(this)
 
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
@@ -335,7 +337,7 @@ class OverlayService : Service() {
 
     private fun showActiveOverlay(timeText: String, trigger: ActiveOverlayTrigger) {
         if (isActiveState || isBlockingOverlayVisible || overlayFailed) return
-        if (trigger == ActiveOverlayTrigger.FIVE_MINUTE_BUCKET && isDrivingAppActive) return
+        if (trigger == ActiveOverlayTrigger.PERIODIC_CHECK_IN && isDrivingAppActive) return
         isActiveState = true
         activeOverlayTrigger = trigger
 
@@ -412,14 +414,23 @@ class OverlayService : Service() {
     private fun updateScreenTime(totalMs: Long) {
         latestTimeText = ScreenTimeDisplay.format(totalMs)
         if (!isActiveState) updatePassiveText(latestTimeText)
-        val decision = FiveMinuteOverlayPolicy.evaluate(
+        val configuredIntervalMinutes = CheckInSettings.loadIntervalMinutes(this)
+        if (configuredIntervalMinutes != checkInIntervalMinutes) {
+            checkInIntervalMinutes = configuredIntervalMinutes
+            lastTriggeredBucket = CheckInOverlayPolicy.bucketFor(
+                totalScreenTimeMs = totalMs,
+                intervalMinutes = checkInIntervalMinutes
+            )
+        }
+        val decision = CheckInOverlayPolicy.evaluate(
             totalScreenTimeMs = totalMs,
             lastObservedBucket = lastTriggeredBucket,
-            drivingAppActive = isDrivingAppActive
+            drivingAppActive = isDrivingAppActive,
+            intervalMinutes = checkInIntervalMinutes
         )
         lastTriggeredBucket = decision.observedBucket
         if (decision.shouldShowCheckIn) {
-            showActiveOverlay(latestTimeText, ActiveOverlayTrigger.FIVE_MINUTE_BUCKET)
+            showActiveOverlay(latestTimeText, ActiveOverlayTrigger.PERIODIC_CHECK_IN)
         }
     }
 
@@ -440,7 +451,7 @@ class OverlayService : Service() {
         )
         if (
             isDrivingAppActive &&
-            activeOverlayTrigger == ActiveOverlayTrigger.FIVE_MINUTE_BUCKET
+            activeOverlayTrigger == ActiveOverlayTrigger.PERIODIC_CHECK_IN
         ) {
             dismissActiveOverlay()
         }

@@ -15,8 +15,8 @@ Core flow:
 3. The user can edit short-term and long-term goals and optionally grant calendar read access.
 4. Starting the HUD launches `OverlayService` as a foreground service.
 5. A draggable bubble shows total interactive screen time and opens the goal check-in when tapped.
-6. At newly observed five-minute usage buckets, it is replaced by the same full-screen goal check-in.
-7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, close it, or open Usage restrictions directly. Bubble-opened check-ins close immediately; automatic five-minute check-ins enforce a five-second delay, while the Usage restrictions shortcut remains immediately available.
+6. At newly observed usage buckets for the configured 1–60 minute interval, it is replaced by the same full-screen goal check-in. The interval defaults to five minutes.
+7. The user can switch goal groups, mark a goal done for the day, undo it, remove it, close it, or open Usage restrictions directly. Bubble-opened check-ins close immediately; automatic periodic check-ins enforce a five-second delay, while the Usage restrictions shortcut remains immediately available.
 8. The service can restart after boot or package replacement when saved active state and required permissions allow it.
 9. Independently of the HUD service, an optional accessibility service enforces Restricted Mode or Brick Mode plus configured per-app daily limits and supported in-app section rules for YouTube, Instagram, Facebook, Snapchat, and X. Restricted Mode uses an unrestricted-size allow-list; Brick Mode uses a separate allow-list capped at eight user-chosen apps and locks that list while active. Both modes block unchosen launchable app windows while always allowing protected essential apps; they never stop background services. The service preserves higher-layer multi-window/pop-up regions, keeps Instagram Messages exempt from section rules, and presents the shared goal check-in over blocked content. After the five-second pause, Close returns to Android Home.
 
@@ -24,8 +24,8 @@ Important timing behavior:
 
 - Screen time is measured from a daily 3:00 AM boundary.
 - The service refreshes the timer every 10 seconds.
-- The active check-in triggers once per newly observed five-minute total-screen-time bucket.
-- Service restart currently resets in-memory bucket state, so an active overlay may appear immediately when accumulated usage already exceeds five minutes.
+- The active check-in triggers once per newly observed total-screen-time bucket using the persisted 1–60 minute interval.
+- Service restart currently resets in-memory bucket state, so an active overlay may appear immediately when accumulated usage already exceeds the configured interval.
 
 Current repository facts:
 
@@ -121,7 +121,7 @@ app/
   - Foreground-service lifecycle and notification
   - Usage-event aggregation
   - Passive and active overlay creation/removal
-  - Five-minute trigger behavior
+  - Configurable periodic trigger behavior
   - Goal interaction UI and live calendar agenda
   - Highest-regression-risk file
 
@@ -180,7 +180,7 @@ SharedPreferences
 UsageStatsManager + PowerManager
   -> OverlayService usage calculation
   -> passive timer
-  -> five-minute active-overlay trigger
+  -> configurable periodic active-overlay trigger
 
 Calendar Provider
   -> CalendarAgenda
@@ -220,7 +220,7 @@ Preserve these unless the request explicitly changes them.
 - System destruction is not an explicit user stop.
 - Only one passive or active overlay should be attached at a time.
 - Overlay cleanup must be safe during stop, recreation, and failure.
-- Every full check-in opened from the bubble, five-minute trigger, or app-control blocker must provide an immediate shortcut to the Usage restrictions destination.
+- Every full check-in opened from the bubble, periodic trigger, or app-control blocker must provide an immediate shortcut to the Usage restrictions destination.
 - Notification tap should return to the single activity without unnecessary duplicate instances.
 - Boot/package replacement restart stays gated by saved active state and required permissions.
 
@@ -228,7 +228,7 @@ Preserve these unless the request explicitly changes them.
 
 - The daily boundary is 3:00 AM unless explicitly changed.
 - Screen time means interactive-screen time derived from Android usage events and current interactive state.
-- Preserve existing five-minute bucket semantics unless explicitly redesigned.
+- Preserve the configured 1–60 minute bucket semantics unless explicitly redesigned.
 - Do not replace interactive time with app-usage totals unless requested.
 - Time aggregation and boundary changes require focused regression tests.
 

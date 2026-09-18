@@ -27,8 +27,8 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun automatic_five_minute_check_in_keeps_close_delay() {
-        assertTrue(ActiveOverlayTrigger.FIVE_MINUTE_BUCKET.requiresCloseDelay)
+    fun automatic_periodic_check_in_keeps_close_delay() {
+        assertTrue(ActiveOverlayTrigger.PERIODIC_CHECK_IN.requiresCloseDelay)
     }
 
     @Test

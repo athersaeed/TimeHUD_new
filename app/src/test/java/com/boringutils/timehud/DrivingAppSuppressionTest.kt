@@ -6,23 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DrivingAppSuppressionTest {
-    @Test fun known_navigation_apps_suppress_the_five_minute_overlay() {
-        assertTrue(DrivingAppPolicy.shouldSuppressFiveMinuteOverlay("com.google.android.apps.maps", false))
-        assertTrue(DrivingAppPolicy.shouldSuppressFiveMinuteOverlay("com.waze", false))
-        assertTrue(DrivingAppPolicy.shouldSuppressFiveMinuteOverlay("com.google.android.projection.gearhead", false))
+    @Test fun known_navigation_apps_suppress_the_periodic_overlay() {
+        assertTrue(DrivingAppPolicy.shouldSuppressPeriodicOverlay("com.google.android.apps.maps", false))
+        assertTrue(DrivingAppPolicy.shouldSuppressPeriodicOverlay("com.waze", false))
+        assertTrue(DrivingAppPolicy.shouldSuppressPeriodicOverlay("com.google.android.projection.gearhead", false))
     }
 
     @Test fun maps_category_covers_other_navigation_apps() {
-        assertTrue(DrivingAppPolicy.shouldSuppressFiveMinuteOverlay("example.navigation", true))
+        assertTrue(DrivingAppPolicy.shouldSuppressPeriodicOverlay("example.navigation", true))
     }
 
     @Test fun unrelated_or_unknown_apps_do_not_suppress_the_overlay() {
-        assertFalse(DrivingAppPolicy.shouldSuppressFiveMinuteOverlay("com.example.social", false))
-        assertFalse(DrivingAppPolicy.shouldSuppressFiveMinuteOverlay(null, true))
+        assertFalse(DrivingAppPolicy.shouldSuppressPeriodicOverlay("com.example.social", false))
+        assertFalse(DrivingAppPolicy.shouldSuppressPeriodicOverlay(null, true))
     }
 
     @Test fun driving_app_consumes_bucket_without_showing_a_delayed_check_in() {
-        val suppressed = FiveMinuteOverlayPolicy.evaluate(
+        val suppressed = CheckInOverlayPolicy.evaluate(
             totalScreenTimeMs = 5 * 60 * 1_000L,
             lastObservedBucket = 0L,
             drivingAppActive = true
@@ -30,7 +30,7 @@ class DrivingAppSuppressionTest {
         assertEquals(1L, suppressed.observedBucket)
         assertFalse(suppressed.shouldShowCheckIn)
 
-        val afterLeavingNavigation = FiveMinuteOverlayPolicy.evaluate(
+        val afterLeavingNavigation = CheckInOverlayPolicy.evaluate(
             totalScreenTimeMs = 5 * 60 * 1_000L,
             lastObservedBucket = suppressed.observedBucket,
             drivingAppActive = false
@@ -39,13 +39,39 @@ class DrivingAppSuppressionTest {
     }
 
     @Test fun next_new_bucket_shows_after_navigation_is_closed() {
-        val decision = FiveMinuteOverlayPolicy.evaluate(
+        val decision = CheckInOverlayPolicy.evaluate(
             totalScreenTimeMs = 10 * 60 * 1_000L,
             lastObservedBucket = 1L,
             drivingAppActive = false
         )
         assertEquals(2L, decision.observedBucket)
         assertTrue(decision.shouldShowCheckIn)
+    }
+
+    @Test fun configured_interval_controls_the_check_in_bucket() {
+        val beforeBoundary = CheckInOverlayPolicy.evaluate(
+            totalScreenTimeMs = 59 * 60 * 1_000L,
+            lastObservedBucket = 0L,
+            drivingAppActive = false,
+            intervalMinutes = 60
+        )
+        assertFalse(beforeBoundary.shouldShowCheckIn)
+
+        val atBoundary = CheckInOverlayPolicy.evaluate(
+            totalScreenTimeMs = 60 * 60 * 1_000L,
+            lastObservedBucket = 0L,
+            drivingAppActive = false,
+            intervalMinutes = 60
+        )
+        assertEquals(1L, atBoundary.observedBucket)
+        assertTrue(atBoundary.shouldShowCheckIn)
+    }
+
+    @Test fun check_in_interval_accepts_one_through_sixty_and_defaults_invalid_values() {
+        assertEquals(1, CheckInSettings.normalizeIntervalMinutes(1))
+        assertEquals(60, CheckInSettings.normalizeIntervalMinutes(60))
+        assertEquals(5, CheckInSettings.normalizeIntervalMinutes(0))
+        assertEquals(5, CheckInSettings.normalizeIntervalMinutes(61))
     }
 
     @Test fun maps_activity_pause_does_not_erase_a_newer_maps_resume() {

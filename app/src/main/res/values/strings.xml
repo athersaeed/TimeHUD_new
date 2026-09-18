@@ -13,6 +13,14 @@
     <string name="active_long_term_goals">Long term goals</string>
     <string name="active_no_goals">- No goals saved yet</string>
     <string name="active_more_agenda_items">- %1$d more today</string>
+    <string name="check_in_interval_label">Automatic check-in interval</string>
+    <string name="check_in_interval_description">Choose how often your goals appear automatically</string>
+    <string name="check_in_interval_minimum">1 min</string>
+    <string name="check_in_interval_maximum">60 min</string>
+    <plurals name="check_in_interval_value">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
     <string name="goal_backup_title">Goal Backup</string>
     <string name="goal_backup_description">Save or replace goal lists using a local JSON file.</string>
     <string name="goal_backup_export">Export Goals</string>
