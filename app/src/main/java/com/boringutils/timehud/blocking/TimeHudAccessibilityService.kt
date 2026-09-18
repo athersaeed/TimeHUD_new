@@ -19,6 +19,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.FrameLayout
 import com.boringutils.timehud.ActiveOverlayContentController
 import com.boringutils.timehud.ActiveOverlayTrigger
+import com.boringutils.timehud.AccessibilityForegroundAppStateStore
 import com.boringutils.timehud.BlockingOverlayStateStore
 import com.boringutils.timehud.R
 import com.boringutils.timehud.createTimeHudDestinationIntent
@@ -53,6 +54,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        AccessibilityForegroundAppStateStore.markConnected()
         overlayController = BlockingOverlayController(
             service = this,
             onClose = ::returnHome,
@@ -70,6 +72,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        AccessibilityForegroundAppStateStore.updatePackage(null)
         flushFocusedUsage()
         focusedPackage = null
         focusStartedElapsedMs = 0L
@@ -78,6 +81,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        AccessibilityForegroundAppStateStore.markDisconnected()
         destroyed.set(true)
         mainHandler.removeCallbacksAndMessages(null)
         flushFocusedUsage()
@@ -112,6 +116,8 @@ class TimeHudAccessibilityService : AccessibilityService() {
     }
 
     private fun evaluateWindows() {
+        val windows = runCatching { windows.orEmpty() }.getOrDefault(emptyList())
+        AccessibilityForegroundAppStateStore.updatePackage(findFocusedPackage(windows))
         val nowWallMs = System.currentTimeMillis()
         val rules = AppBlockSettings.loadRules(this).associateBy { it.packageName }
         val brickModeConfig = BrickModeSettings.load(this, nowWallMs)
@@ -131,7 +137,6 @@ class TimeHudAccessibilityService : AccessibilityService() {
             return
         }
 
-        val windows = runCatching { windows.orEmpty() }.getOrDefault(emptyList())
         val geometries = windows.mapNotNull(::windowGeometry)
         val appWindows = windows.mapNotNull { window ->
             val geometry = windowGeometry(window) ?: return@mapNotNull null

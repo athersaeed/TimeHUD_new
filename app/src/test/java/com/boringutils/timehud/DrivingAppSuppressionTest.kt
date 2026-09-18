@@ -47,4 +47,44 @@ class DrivingAppSuppressionTest {
         assertEquals(2L, decision.observedBucket)
         assertTrue(decision.shouldShowCheckIn)
     }
+
+    @Test fun maps_activity_pause_does_not_erase_a_newer_maps_resume() {
+        val tracker = ForegroundPackageTracker()
+        tracker.record("com.google.android.apps.maps", ForegroundPackageTracker.ACTIVITY_RESUMED)
+        tracker.record("com.google.android.apps.maps", 24)
+
+        assertEquals("com.google.android.apps.maps", tracker.packageName)
+    }
+
+    @Test fun another_apps_resume_replaces_maps_as_the_foreground_package() {
+        val tracker = ForegroundPackageTracker()
+        tracker.record("com.google.android.apps.maps", ForegroundPackageTracker.ACTIVITY_RESUMED)
+        tracker.record("com.android.launcher", ForegroundPackageTracker.ACTIVITY_RESUMED)
+
+        assertEquals("com.android.launcher", tracker.packageName)
+    }
+
+    @Test fun accessibility_window_signal_takes_priority_over_usage_history() {
+        assertTrue(
+            DrivingAppSignalPolicy.resolve(
+                usageAccessSignal = false,
+                accessibilityWindowSignal = true
+            )
+        )
+        assertFalse(
+            DrivingAppSignalPolicy.resolve(
+                usageAccessSignal = true,
+                accessibilityWindowSignal = false
+            )
+        )
+    }
+
+    @Test fun usage_history_remains_the_fallback_without_an_accessibility_window() {
+        assertTrue(
+            DrivingAppSignalPolicy.resolve(
+                usageAccessSignal = true,
+                accessibilityWindowSignal = null
+            )
+        )
+    }
 }

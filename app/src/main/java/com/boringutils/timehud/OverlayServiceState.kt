@@ -37,3 +37,28 @@ internal object BlockingOverlayStateStore {
         _isVisible.value = visible
     }
 }
+
+internal data class AccessibilityForegroundAppState(
+    val serviceConnected: Boolean = false,
+    val packageName: String? = null
+)
+
+internal object AccessibilityForegroundAppStateStore {
+    private val _state = MutableStateFlow(AccessibilityForegroundAppState())
+    val state: StateFlow<AccessibilityForegroundAppState> = _state.asStateFlow()
+
+    fun markConnected() {
+        _state.value = AccessibilityForegroundAppState(serviceConnected = true)
+    }
+
+    fun updatePackage(packageName: String?) {
+        _state.value = AccessibilityForegroundAppState(
+            serviceConnected = true,
+            packageName = packageName
+        )
+    }
+
+    fun markDisconnected() {
+        _state.value = AccessibilityForegroundAppState()
+    }
+}

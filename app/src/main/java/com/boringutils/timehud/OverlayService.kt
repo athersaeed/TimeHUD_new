@@ -66,6 +66,8 @@ class OverlayService : Service() {
     private var activeOverlayTrigger: ActiveOverlayTrigger? = null
     private var isActiveState = false
     private var isBlockingOverlayVisible = false
+    private var usageAccessDrivingSignal = false
+    private var accessibilityWindowDrivingSignal: Boolean? = null
     private var isDrivingAppActive = false
     private var lastTriggeredBucket: Long = -1L
     private var latestTimeText: String = "…"
@@ -83,6 +85,20 @@ class OverlayService : Service() {
 
         serviceScope.launch {
             BlockingOverlayStateStore.isVisible.collect(::handleBlockingOverlayVisibility)
+        }
+        serviceScope.launch {
+            AccessibilityForegroundAppStateStore.state.collect { state ->
+                val accessibilitySignal = if (
+                    state.serviceConnected && state.packageName != null
+                ) {
+                    withContext(Dispatchers.IO) {
+                        foregroundAppMonitor.isDrivingPackage(state.packageName)
+                    }
+                } else {
+                    null
+                }
+                updateAccessibilityDrivingSignal(accessibilitySignal)
+            }
         }
         showPassiveOverlay()
         serviceScope.launch {
@@ -103,7 +119,7 @@ class OverlayService : Service() {
                 }
                 // Keep the last successful readings on provider failure.
                 if (!overlayFailed) {
-                    sample.drivingAppActive?.let(::updateDrivingAppState)
+                    sample.drivingAppActive?.let(::updateUsageAccessDrivingSignal)
                     sample.totalScreenTimeMs?.let(::updateScreenTime)
                 }
                 delay(TICK_INTERVAL_MS)
@@ -407,9 +423,25 @@ class OverlayService : Service() {
         }
     }
 
-    private fun updateDrivingAppState(active: Boolean) {
-        isDrivingAppActive = active
-        if (active && activeOverlayTrigger == ActiveOverlayTrigger.FIVE_MINUTE_BUCKET) {
+    private fun updateUsageAccessDrivingSignal(active: Boolean) {
+        usageAccessDrivingSignal = active
+        reconcileDrivingAppState()
+    }
+
+    private fun updateAccessibilityDrivingSignal(active: Boolean?) {
+        accessibilityWindowDrivingSignal = active
+        reconcileDrivingAppState()
+    }
+
+    private fun reconcileDrivingAppState() {
+        isDrivingAppActive = DrivingAppSignalPolicy.resolve(
+            usageAccessSignal = usageAccessDrivingSignal,
+            accessibilityWindowSignal = accessibilityWindowDrivingSignal
+        )
+        if (
+            isDrivingAppActive &&
+            activeOverlayTrigger == ActiveOverlayTrigger.FIVE_MINUTE_BUCKET
+        ) {
             dismissActiveOverlay()
         }
     }

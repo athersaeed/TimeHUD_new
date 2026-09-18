@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import java.util.concurrent.ConcurrentHashMap
 
 internal data class HudRuntimeSample(
     val totalScreenTimeMs: Long?,
@@ -59,6 +60,32 @@ internal object FiveMinuteOverlayPolicy {
     }
 }
 
+internal object DrivingAppSignalPolicy {
+    fun resolve(
+        usageAccessSignal: Boolean,
+        accessibilityWindowSignal: Boolean?
+    ): Boolean = accessibilityWindowSignal ?: usageAccessSignal
+}
+
+internal class ForegroundPackageTracker {
+    companion object {
+        internal const val MOVE_TO_FOREGROUND = 1
+        internal const val ACTIVITY_RESUMED = 23
+    }
+
+    var packageName: String? = null
+        private set
+
+    fun record(packageName: String, eventType: Int) {
+        // A package can resume one activity before pausing another. The newest
+        // foreground/resume event is authoritative; a same-package pause must
+        // not erase it. A different app's resume replaces it naturally.
+        if (eventType == MOVE_TO_FOREGROUND || eventType == ACTIVITY_RESUMED) {
+            this.packageName = packageName
+        }
+    }
+}
+
 /**
  * Tracks the most recently foregrounded package from Usage Access events.
  * Calls must stay on the service's serial worker dispatcher.
@@ -67,24 +94,23 @@ internal class ForegroundAppMonitor(context: Context) {
     companion object {
         private const val INITIAL_LOOKBACK_MS = 24 * 60 * 60 * 1_000L
         private const val QUERY_OVERLAP_MS = 1_000L
-        private const val MOVE_TO_FOREGROUND = 1
-        private const val MOVE_TO_BACKGROUND = 2
-        private const val ACTIVITY_RESUMED = 23
-        private const val ACTIVITY_PAUSED = 24
     }
 
     private val usageStatsManager =
         context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
             ?: throw IllegalStateException("Usage service unavailable")
     private val packageManager = context.packageManager
-    private val mapsCategoryCache = mutableMapOf<String, Boolean>()
+    private val mapsCategoryCache = ConcurrentHashMap<String, Boolean>()
+    private val foregroundPackageTracker = ForegroundPackageTracker()
 
     private var lastQueryEndMs = 0L
-    private var foregroundPackage: String? = null
 
     fun isDrivingAppActive(nowMs: Long = System.currentTimeMillis()): Boolean {
         refreshForegroundPackage(nowMs)
-        val packageName = foregroundPackage
+        return isDrivingPackage(foregroundPackageTracker.packageName)
+    }
+
+    fun isDrivingPackage(packageName: String?): Boolean {
         return DrivingAppPolicy.shouldSuppressFiveMinuteOverlay(
             packageName = packageName,
             isMapsCategory = packageName?.let(::isMapsCategory) == true
@@ -104,12 +130,7 @@ internal class ForegroundAppMonitor(context: Context) {
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
             val packageName = event.packageName ?: continue
-            when (event.eventType) {
-                MOVE_TO_FOREGROUND, ACTIVITY_RESUMED -> foregroundPackage = packageName
-                MOVE_TO_BACKGROUND, ACTIVITY_PAUSED -> {
-                    if (foregroundPackage == packageName) foregroundPackage = null
-                }
-            }
+            foregroundPackageTracker.record(packageName, event.eventType)
         }
         lastQueryEndMs = nowMs
     }
