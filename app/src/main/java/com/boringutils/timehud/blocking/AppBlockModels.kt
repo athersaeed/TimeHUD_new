@@ -207,7 +207,9 @@ internal object AppSurfaceClassifier {
         signals.hasViewId("story_viewer", "stories_viewer") ||
             signals.hasLabel("story by") -> AppSurface.STORIES
         signals.hasSelectedLabel("reels") ||
-            signals.hasViewId("reels_tab", "reels_feed", "reels_viewer") -> AppSurface.REELS
+            signals.hasViewId("reels_tab", "reels_feed", "reels_viewer") ||
+            (signals.hasLabel("add a comment", "add a comment...") &&
+                signals.hasLabel("original audio", "follow")) -> AppSurface.REELS
         signals.hasSelectedLabel("marketplace") ||
             signals.hasViewId("marketplace_tab", "marketplace_feed") -> AppSurface.MARKETPLACE
         else -> AppSurface.OTHER

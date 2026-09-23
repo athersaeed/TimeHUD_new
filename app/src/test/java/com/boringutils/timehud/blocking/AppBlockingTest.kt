@@ -50,6 +50,102 @@ class AppBlockingTest {
     }
 
     @Test
+    fun active_grace_bypasses_daily_limits_and_section_blocks_but_not_brick_mode() {
+        val activeGrace = AppLimitGraceStatus.Active(
+            kind = AppLimitGraceKind.NORMAL,
+            endMs = 20_000L
+        )
+
+        assertEquals(
+            BlockDecision.Allow,
+            AppLimitGracePolicy.applyTo(
+                BlockDecision.Block(BlockReason.DAILY_LIMIT),
+                activeGrace
+            )
+        )
+        assertEquals(
+            BlockDecision.Allow,
+            AppLimitGracePolicy.applyTo(
+                BlockDecision.Block(BlockReason.REELS),
+                activeGrace
+            )
+        )
+        assertEquals(
+            BlockDecision.Allow,
+            AppLimitGracePolicy.applyTo(
+                BlockDecision.Block(BlockReason.MESSAGE_INBOX),
+                activeGrace
+            )
+        )
+        assertEquals(
+            BlockDecision.Block(BlockReason.BRICK_MODE),
+            AppLimitGracePolicy.applyTo(
+                BlockDecision.Block(BlockReason.BRICK_MODE),
+                activeGrace
+            )
+        )
+    }
+
+    @Test
+    fun normal_grace_is_followed_by_shared_cooldown_and_one_emergency_grace() {
+        val nowMs = 1_000_000L
+        val normalState = AppLimitGracePolicy.startNormal(
+            usagePeriodStartMs = 0L,
+            durationMinutes = 10,
+            nowMs = nowMs
+        )
+        assertEquals(
+            AppLimitGraceStatus.Active(AppLimitGraceKind.NORMAL, nowMs + 10 * 60_000L),
+            AppLimitGracePolicy.status(normalState, nowMs)
+        )
+
+        val afterNormalMs = nowMs + 10 * 60_000L
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = afterNormalMs + 30 * 60_000L,
+                emergencyAvailable = true
+            ),
+            AppLimitGracePolicy.status(normalState, afterNormalMs)
+        )
+
+        val emergencyState = AppLimitGracePolicy.startEmergency(normalState, afterNormalMs)
+        assertEquals(
+            AppLimitGraceStatus.Active(
+                AppLimitGraceKind.EMERGENCY,
+                afterNormalMs + 3 * 60_000L
+            ),
+            AppLimitGracePolicy.status(emergencyState, afterNormalMs)
+        )
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = afterNormalMs + 30 * 60_000L,
+                emergencyAvailable = false
+            ),
+            AppLimitGracePolicy.status(emergencyState, afterNormalMs + 3 * 60_000L)
+        )
+    }
+
+    @Test
+    fun ending_normal_grace_early_starts_cooldown_from_that_time() {
+        val nowMs = 2_000_000L
+        val normalState = AppLimitGracePolicy.startNormal(
+            usagePeriodStartMs = 0L,
+            durationMinutes = 30,
+            nowMs = nowMs
+        )
+        val endedAtMs = nowMs + 5 * 60_000L
+        val endedState = AppLimitGracePolicy.endActiveGrace(normalState, endedAtMs)
+
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = endedAtMs + 30 * 60_000L,
+                emergencyAvailable = true
+            ),
+            AppLimitGracePolicy.status(endedState, endedAtMs)
+        )
+    }
+
+    @Test
     fun screenshot_apps_expose_the_expected_options() {
         assertEquals(
             listOf(
@@ -104,6 +200,23 @@ class AppBlockingTest {
                 AppSurfaceClassifier.classify(packageName, signals)
             )
         }
+    }
+
+    @Test
+    fun facebook_reel_viewer_is_recognized_without_navigation_tab() {
+        val signals = AppUiSignals(
+            labels = setOf("add a comment...", "original audio", "follow", "like", "share")
+        )
+
+        assertEquals(AppSurface.REELS, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE, signals))
+        assertEquals(AppSurface.REELS, AppSurfaceClassifier.classify(FACEBOOK_LITE_PACKAGE, signals))
+    }
+
+    @Test
+    fun facebook_post_comment_prompt_alone_does_not_block_as_reel() {
+        val signals = AppUiSignals(labels = setOf("add a comment...", "like", "share"))
+
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE, signals))
     }
 
     @Test

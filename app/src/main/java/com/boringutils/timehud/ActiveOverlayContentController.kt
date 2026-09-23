@@ -11,6 +11,7 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +21,14 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+internal data class AppLimitGraceControls(
+    val optionsMinutes: List<Int> = emptyList(),
+    val cooldownRemainingMs: Long? = null,
+    val emergencyAvailable: Boolean = false,
+    val onStartNormal: ((Int) -> Unit)? = null,
+    val onStartEmergency: (() -> Unit)? = null
+)
+
 internal class ActiveOverlayContentController(
     private val context: Context,
     private val handler: Handler,
@@ -27,7 +36,8 @@ internal class ActiveOverlayContentController(
     timeText: String?,
     requiresCloseDelay: Boolean,
     private val onClose: () -> Unit,
-    private val onOpenBrickMode: () -> Unit
+    private val onOpenBrickMode: () -> Unit,
+    graceControls: AppLimitGraceControls? = null
 ) {
     private var activeGoalConfig = GoalSettings.load(context)
     private var activeGoalMode = GoalMode.SHORT_TERM
@@ -66,8 +76,81 @@ internal class ActiveOverlayContentController(
         }
         rootView.findViewById<Button>(R.id.btn_open_brick_mode)
             ?.setOnClickListener { onOpenBrickMode() }
+        configureGraceControls(graceControls)
         if (requiresCloseDelay) {
             handler.postDelayed(enableCloseRunnable, ACTIVE_CLOSE_DELAY_MS)
+        }
+    }
+
+    private fun configureGraceControls(controls: AppLimitGraceControls?) {
+        val container = rootView.findViewById<LinearLayout>(R.id.layout_app_limit_grace) ?: return
+        if (controls == null) {
+            container.visibility = View.GONE
+            return
+        }
+
+        container.visibility = View.VISIBLE
+        val normalControls = rootView.findViewById<LinearLayout>(R.id.layout_normal_grace)
+        val cooldownStatus = rootView.findViewById<TextView>(R.id.tv_grace_cooldown)
+        val emergencyButton = rootView.findViewById<Button>(R.id.btn_emergency_grace)
+        val options = controls.optionsMinutes
+        val startNormal = controls.onStartNormal
+
+        if (startNormal != null && options.isNotEmpty()) {
+            normalControls?.visibility = View.VISIBLE
+            cooldownStatus?.visibility = View.GONE
+            emergencyButton?.visibility = View.GONE
+            val selectedDuration = rootView.findViewById<TextView>(R.id.tv_grace_duration)
+            val seekBar = rootView.findViewById<SeekBar>(R.id.seek_grace_duration)
+            val startButton = rootView.findViewById<Button>(R.id.btn_start_grace)
+            val defaultIndex = options.indexOf(5).takeIf { it >= 0 } ?: 0
+
+            fun updateSelection(index: Int) {
+                val minutes = options[index]
+                selectedDuration?.text = context.resources.getQuantityString(
+                    R.plurals.app_limit_grace_duration,
+                    minutes,
+                    minutes
+                )
+                startButton?.text = context.getString(R.string.app_limit_grace_start, minutes)
+                startButton?.setOnClickListener { startNormal(minutes) }
+            }
+
+            seekBar?.apply {
+                max = options.lastIndex
+                progress = defaultIndex
+                contentDescription = context.getString(R.string.app_limit_grace_slider_description)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(
+                        seekBar: SeekBar?,
+                        progress: Int,
+                        fromUser: Boolean
+                    ) {
+                        updateSelection(progress.coerceIn(options.indices))
+                    }
+
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+                })
+            }
+            updateSelection(defaultIndex)
+            return
+        }
+
+        normalControls?.visibility = View.GONE
+        cooldownStatus?.visibility = View.VISIBLE
+        val remainingMinutes = controls.cooldownRemainingMs
+            ?.let { ((it + 59_999L) / 60_000L).coerceAtLeast(1L) }
+            ?: 1L
+        cooldownStatus?.text = context.resources.getQuantityString(
+            R.plurals.app_limit_grace_cooldown,
+            remainingMinutes.toInt(),
+            remainingMinutes
+        )
+        emergencyButton?.apply {
+            visibility = if (controls.emergencyAvailable) View.VISIBLE else View.GONE
+            setOnClickListener { controls.onStartEmergency?.invoke() }
         }
     }
 

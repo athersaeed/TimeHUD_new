@@ -138,6 +138,20 @@
     <string name="app_blocking_summary_spotlight">Spotlight blocked</string>
     <string name="app_blocking_summary_messages">Open chats allowed</string>
     <string name="blocking_overlay_content_description">TimeHUD check-in covering content blocked by an app-control rule</string>
+    <string name="app_limit_grace_title">Need a little more time?</string>
+    <plurals name="app_limit_grace_duration">
+        <item quantity="one">%1$d minute of grace</item>
+        <item quantity="other">%1$d minutes of grace</item>
+    </plurals>
+    <string name="app_limit_grace_slider_description">Choose grace-period duration</string>
+    <string name="app_limit_grace_start">Start %1$d-minute grace</string>
+    <plurals name="app_limit_grace_cooldown">
+        <item quantity="one">Normal grace is available again in about %1$d minute.</item>
+        <item quantity="other">Normal grace is available again in about %1$d minutes.</item>
+    </plurals>
+    <string name="app_limit_emergency_grace_start">Use one 3-minute emergency grace</string>
+    <string name="app_limit_grace_countdown">Grace %1$s · End</string>
+    <string name="app_limit_grace_countdown_description">Grace-period time remaining. Tap to end grace now.</string>
     <string name="brick_mode_heading">Usage restrictions</string>
     <string name="brick_mode_description">Use Restricted Mode for a flexible allow-list, or Brick Mode for a strict list of up to 8 apps. Essential apps stay available automatically.</string>
     <string name="restricted_mode_name">Restricted Mode</string>

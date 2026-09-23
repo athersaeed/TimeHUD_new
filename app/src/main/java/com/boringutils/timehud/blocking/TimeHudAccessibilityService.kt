@@ -2,6 +2,7 @@ package com.boringutils.timehud.blocking
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
+import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
@@ -16,7 +17,9 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.widget.Button
 import android.widget.FrameLayout
+import com.boringutils.timehud.AppLimitGraceControls
 import com.boringutils.timehud.ActiveOverlayContentController
 import com.boringutils.timehud.ActiveOverlayTrigger
 import com.boringutils.timehud.AccessibilityForegroundAppStateStore
@@ -58,7 +61,11 @@ class TimeHudAccessibilityService : AccessibilityService() {
         overlayController = BlockingOverlayController(
             service = this,
             onClose = ::returnHome,
-            onOpenBrickMode = ::openBrickMode
+            onOpenBrickMode = ::openBrickMode,
+            onStartNormalGrace = ::startNormalGrace,
+            onStartEmergencyGrace = ::startEmergencyGrace,
+            onEndGrace = ::endGrace,
+            onGraceExpired = { scheduleEvaluation(delayMs = 0L) }
         )
         refreshBrickModeCatalog(force = true)
         scheduleEvaluation(delayMs = 0L)
@@ -119,6 +126,8 @@ class TimeHudAccessibilityService : AccessibilityService() {
         val windows = runCatching { windows.orEmpty() }.getOrDefault(emptyList())
         AccessibilityForegroundAppStateStore.updatePackage(findFocusedPackage(windows))
         val nowWallMs = System.currentTimeMillis()
+        val graceState = AppLimitGraceStore.load(this, nowWallMs)
+        val graceStatus = AppLimitGracePolicy.status(graceState, nowWallMs)
         val rules = AppBlockSettings.loadRules(this).associateBy { it.packageName }
         val brickModeConfig = BrickModeSettings.load(this, nowWallMs)
         val brickModeSchedules = BrickModeSettings.loadSchedules(this)
@@ -195,12 +204,13 @@ class TimeHudAccessibilityService : AccessibilityService() {
             } else {
                 0L
             }
-            val decision = AppControlDecisionEngine.decide(
+            val appControlDecision = AppControlDecisionEngine.decide(
                 brickModeDecision = observed.brickModeDecision,
                 appBlockRule = observed.rule,
                 focusedUsageMs = focusedUsageMs,
                 surface = observed.surface
             )
+            val decision = AppLimitGracePolicy.applyTo(appControlDecision, graceStatus)
             when (decision) {
                 BlockDecision.Allow -> null
                 is BlockDecision.Block -> BlockTarget(
@@ -212,11 +222,12 @@ class TimeHudAccessibilityService : AccessibilityService() {
             }
         }
 
-        overlayController.render(targets, geometries)
+        overlayController.render(targets, geometries, graceStatus)
         scheduleNextBoundary(
             appWindows = appWindows,
             brickModeConfig = brickModeConfig,
             brickModeSchedules = brickModeSchedules,
+            graceStatus = graceStatus,
             nowElapsedMs = nowElapsedMs,
             nowWallMs = nowWallMs
         )
@@ -308,6 +319,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         appWindows: List<ObservedAppWindow>,
         brickModeConfig: BrickModeConfig,
         brickModeSchedules: List<BrickModeSchedule>,
+        graceStatus: AppLimitGraceStatus,
         nowElapsedMs: Long,
         nowWallMs: Long
     ) {
@@ -330,12 +342,39 @@ class TimeHudAccessibilityService : AccessibilityService() {
             nowMs = nowWallMs
         )?.let { boundaryMs -> boundaryMs - nowWallMs }
             ?.takeIf { it > 0L }
+        val graceBoundaryRemainingMs = when (graceStatus) {
+            is AppLimitGraceStatus.Active -> graceStatus.endMs - nowWallMs
+            is AppLimitGraceStatus.Cooldown -> graceStatus.endMs - nowWallMs
+            AppLimitGraceStatus.NormalAvailable -> null
+        }?.takeIf { it > 0L }
         val nextBoundaryMs = listOfNotNull(
             appLimitRemainingMs?.coerceAtMost(MAX_LIMIT_TIMER_DELAY_MS),
             brickModeRemainingMs,
-            scheduledBoundaryRemainingMs
+            scheduledBoundaryRemainingMs,
+            graceBoundaryRemainingMs
         ).minOrNull() ?: return
         scheduleEvaluation(delayMs = nextBoundaryMs)
+    }
+
+    private fun startNormalGrace(durationMinutes: Int) {
+        runCatching {
+            AppLimitGraceStore.startNormal(this, durationMinutes, System.currentTimeMillis())
+        }.onSuccess {
+            scheduleEvaluation(delayMs = 0L)
+        }
+    }
+
+    private fun startEmergencyGrace() {
+        runCatching {
+            AppLimitGraceStore.startEmergency(this, System.currentTimeMillis())
+        }.onSuccess {
+            scheduleEvaluation(delayMs = 0L)
+        }
+    }
+
+    private fun endGrace() {
+        AppLimitGraceStore.endActiveGrace(this, System.currentTimeMillis())
+        scheduleEvaluation(delayMs = 0L)
     }
 
     private fun returnHome() {
@@ -482,14 +521,42 @@ private object AppWindowInspector {
 private class BlockingOverlayController(
     private val service: AccessibilityService,
     private val onClose: () -> Unit,
-    private val onOpenBrickMode: () -> Unit
+    private val onOpenBrickMode: () -> Unit,
+    private val onStartNormalGrace: (Int) -> Unit,
+    private val onStartEmergencyGrace: () -> Unit,
+    private val onEndGrace: () -> Unit,
+    private val onGraceExpired: () -> Unit
 ) {
     private val windowManager = service.getSystemService(WindowManager::class.java)
-    private val attachedViews = mutableListOf<View>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val blockingViews = mutableListOf<View>()
     private val contentControllers = mutableListOf<ActiveOverlayContentController>()
+    private var graceCountdownButton: Button? = null
+    private var graceCountdownEndMs = 0L
     private var lastSignature: String? = null
 
-    fun render(targets: List<BlockTarget>, windows: List<WindowGeometry>) {
+    private val updateGraceCountdownRunnable = object : Runnable {
+        override fun run() {
+            val button = graceCountdownButton ?: return
+            val remainingMs = graceCountdownEndMs - System.currentTimeMillis()
+            if (remainingMs <= 0L) {
+                clearGraceCountdown()
+                onGraceExpired()
+                return
+            }
+            button.text = service.getString(
+                R.string.app_limit_grace_countdown,
+                formatCountdown(remainingMs)
+            )
+            mainHandler.postDelayed(this, GRACE_COUNTDOWN_TICK_MS)
+        }
+    }
+
+    fun render(
+        targets: List<BlockTarget>,
+        windows: List<WindowGeometry>,
+        graceStatus: AppLimitGraceStatus
+    ) {
         val pieces = targets.flatMap { target ->
             val occluders = windows.asSequence()
                 .filter { it.layer > target.layer }
@@ -508,36 +575,46 @@ private class BlockingOverlayController(
         }
         val signature = pieces.joinToString("|") { piece ->
             "${piece.target.windowId}:${piece.target.reason}:${piece.rect}:${piece.showControls}"
+        } + ":${graceStatus.uiSignature()}"
+        if (signature != lastSignature) {
+            clearBlockingViews()
+            lastSignature = signature
+            val allPiecesAttached = pieces.map { attachPiece(it, graceStatus) }.all { it }
+            if (!allPiecesAttached) {
+                clearBlockingViews()
+                lastSignature = null
+            }
+            BlockingOverlayStateStore.setVisible(pieces.isNotEmpty() && allPiecesAttached)
         }
-        if (signature == lastSignature) return
 
-        clearAttachedViews()
-        lastSignature = signature
-        val allPiecesAttached = pieces.map(::attachPiece).all { it }
-        if (!allPiecesAttached) {
-            clearAttachedViews()
-            lastSignature = null
+        when (graceStatus) {
+            is AppLimitGraceStatus.Active -> showGraceCountdown(graceStatus.endMs)
+            AppLimitGraceStatus.NormalAvailable,
+            is AppLimitGraceStatus.Cooldown -> clearGraceCountdown()
         }
-        BlockingOverlayStateStore.setVisible(pieces.isNotEmpty() && allPiecesAttached)
     }
 
     fun clear() {
-        clearAttachedViews()
+        clearBlockingViews()
+        clearGraceCountdown()
         BlockingOverlayStateStore.setVisible(false)
     }
 
-    private fun clearAttachedViews() {
+    private fun clearBlockingViews() {
         contentControllers.forEach(ActiveOverlayContentController::dispose)
         contentControllers.clear()
-        attachedViews.forEach { view ->
+        blockingViews.forEach { view ->
             runCatching { windowManager.removeViewImmediate(view) }
         }
-        attachedViews.clear()
+        blockingViews.clear()
         lastSignature = null
     }
 
-    private fun attachPiece(piece: OverlayPiece): Boolean {
-        val view = createPieceView(piece)
+    private fun attachPiece(
+        piece: OverlayPiece,
+        graceStatus: AppLimitGraceStatus
+    ): Boolean {
+        val view = createPieceView(piece, graceStatus)
         val params = WindowManager.LayoutParams(
             piece.rect.width,
             piece.rect.height,
@@ -552,12 +629,15 @@ private class BlockingOverlayController(
         }
         return runCatching {
             windowManager.addView(view, params)
-            attachedViews += view
+            blockingViews += view
         }.isSuccess
     }
 
     @SuppressLint("InflateParams")
-    private fun createPieceView(piece: OverlayPiece): View {
+    private fun createPieceView(
+        piece: OverlayPiece,
+        graceStatus: AppLimitGraceStatus
+    ): View {
         if (piece.showControls && piece.rect.width >= MIN_CARD_WIDTH_PX &&
             piece.rect.height >= MIN_CARD_HEIGHT_PX
         ) {
@@ -570,7 +650,8 @@ private class BlockingOverlayController(
                     timeText = null,
                     requiresCloseDelay = ActiveOverlayTrigger.APP_BLOCK.requiresCloseDelay,
                     onClose = onClose,
-                    onOpenBrickMode = onOpenBrickMode
+                    onOpenBrickMode = onOpenBrickMode,
+                    graceControls = graceStatus.controlsFor(piece.target.reason)
                 )
             }
         }
@@ -586,6 +667,81 @@ private class BlockingOverlayController(
         }
     }
 
+    private fun AppLimitGraceStatus.controlsFor(reason: BlockReason): AppLimitGraceControls? {
+        if (reason == BlockReason.BRICK_MODE) return null
+        return when (this) {
+            AppLimitGraceStatus.NormalAvailable -> AppLimitGraceControls(
+                optionsMinutes = APP_LIMIT_GRACE_MINUTES,
+                onStartNormal = onStartNormalGrace
+            )
+            is AppLimitGraceStatus.Cooldown -> AppLimitGraceControls(
+                cooldownRemainingMs = endMs - System.currentTimeMillis(),
+                emergencyAvailable = emergencyAvailable,
+                onStartEmergency = onStartEmergencyGrace
+            )
+            is AppLimitGraceStatus.Active -> null
+        }
+    }
+
+    private fun AppLimitGraceStatus.uiSignature(): String = when (this) {
+        AppLimitGraceStatus.NormalAvailable -> "normal"
+        is AppLimitGraceStatus.Active -> "active:$kind:$endMs"
+        is AppLimitGraceStatus.Cooldown -> "cooldown:$endMs:$emergencyAvailable"
+    }
+
+    private fun showGraceCountdown(endMs: Long) {
+        if (graceCountdownButton != null && graceCountdownEndMs == endMs) return
+        clearGraceCountdown()
+        graceCountdownEndMs = endMs
+        val button = Button(service).apply {
+            isAllCaps = false
+            textSize = 14f
+            setTextColor(service.getColor(R.color.graphite_text_primary))
+            backgroundTintList = ColorStateList.valueOf(
+                service.getColor(R.color.graphite_surface_elevated)
+            )
+            contentDescription = service.getString(R.string.app_limit_grace_countdown_description)
+            setOnClickListener { onEndGrace() }
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(GRACE_COUNTDOWN_HEIGHT_DP),
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = dp(GRACE_COUNTDOWN_TOP_MARGIN_DP)
+        }
+        val attached = runCatching { windowManager.addView(button, params) }.isSuccess
+        if (!attached) {
+            graceCountdownEndMs = 0L
+            return
+        }
+        graceCountdownButton = button
+        updateGraceCountdownRunnable.run()
+    }
+
+    private fun clearGraceCountdown() {
+        mainHandler.removeCallbacks(updateGraceCountdownRunnable)
+        graceCountdownButton?.let { view ->
+            runCatching { windowManager.removeViewImmediate(view) }
+        }
+        graceCountdownButton = null
+        graceCountdownEndMs = 0L
+    }
+
+    private fun formatCountdown(remainingMs: Long): String {
+        val totalSeconds = ((remainingMs + 999L) / 1_000L).coerceAtLeast(0L)
+        val minutes = totalSeconds / 60L
+        val seconds = totalSeconds % 60L
+        return "%d:%02d".format(minutes, seconds)
+    }
+
+    private fun dp(value: Int): Int =
+        (value * service.resources.displayMetrics.density).toInt()
+
     private data class OverlayPiece(
         val target: BlockTarget,
         val rect: ScreenRect,
@@ -596,5 +752,8 @@ private class BlockingOverlayController(
         const val MIN_OVERLAY_EDGE_PX = 2
         const val MIN_CARD_WIDTH_PX = 280
         const val MIN_CARD_HEIGHT_PX = 220
+        const val GRACE_COUNTDOWN_TICK_MS = 1_000L
+        const val GRACE_COUNTDOWN_HEIGHT_DP = 48
+        const val GRACE_COUNTDOWN_TOP_MARGIN_DP = 18
     }
 }
