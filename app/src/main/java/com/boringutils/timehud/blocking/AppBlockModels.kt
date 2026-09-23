@@ -255,10 +255,10 @@ internal data class ScreenRect(
     fun subtract(other: ScreenRect): List<ScreenRect> {
         val overlap = intersection(other) ?: return listOf(this)
         return buildList {
-            addIfVisible(ScreenRect(left, top, right, overlap.top))
-            addIfVisible(ScreenRect(left, overlap.bottom, right, bottom))
-            addIfVisible(ScreenRect(left, overlap.top, overlap.left, overlap.bottom))
-            addIfVisible(ScreenRect(overlap.right, overlap.top, right, overlap.bottom))
+            addIfVisible(ScreenRect(left, top, overlap.left, bottom))
+            addIfVisible(ScreenRect(overlap.right, top, right, bottom))
+            addIfVisible(ScreenRect(overlap.left, top, overlap.right, overlap.top))
+            addIfVisible(ScreenRect(overlap.left, overlap.bottom, overlap.right, bottom))
         }
     }
 
@@ -272,6 +272,23 @@ internal object VisibleRegionCalculator {
         occluders.fold(listOf(target)) { visibleRects, occluder ->
             visibleRects.flatMap { it.subtract(occluder) }
         }
+}
+
+internal object BlockingControlsPlacement {
+    fun order(
+        target: ScreenRect,
+        visibleRects: List<ScreenRect>,
+        minWidth: Int,
+        minHeight: Int
+    ): List<ScreenRect> {
+        val preferredHeight = maxOf(minHeight, target.height / 4)
+        val preferred = visibleRects.filter {
+            it.width >= minWidth && it.height >= preferredHeight
+        }
+        if (preferred.isEmpty()) return visibleRects.sortedByDescending(ScreenRect::area)
+        return preferred.sortedWith(compareBy<ScreenRect> { it.top }.thenByDescending { it.area }) +
+            visibleRects.filterNot { it in preferred }.sortedByDescending(ScreenRect::area)
+    }
 }
 
 internal object BlockingOccluderPolicy {

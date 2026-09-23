@@ -296,6 +296,34 @@ class AppBlockingTest {
     }
 
     @Test
+    fun volume_panel_keeps_blocking_controls_in_usable_upper_region() {
+        val target = ScreenRect(0, 0, 626, 1_280)
+        val visible = VisibleRegionCalculator.calculate(
+            target,
+            listOf(ScreenRect(497, 285, 626, 683))
+        )
+
+        assertEquals(
+            ScreenRect(0, 0, 497, 1_280),
+            BlockingControlsPlacement.order(target, visible, 280, 220).first()
+        )
+    }
+
+    @Test
+    fun short_regions_fall_back_to_largest_space() {
+        val target = ScreenRect(0, 0, 600, 1_200)
+        val visible = listOf(
+            ScreenRect(0, 0, 600, 250),
+            ScreenRect(0, 250, 600, 540)
+        )
+
+        assertEquals(
+            ScreenRect(0, 250, 600, 540),
+            BlockingControlsPlacement.order(target, visible, 280, 220).first()
+        )
+    }
+
+    @Test
     fun full_screen_allowed_window_hides_the_background_blocker() {
         val visible = VisibleRegionCalculator.calculate(
             target = ScreenRect(0, 0, 100, 100),

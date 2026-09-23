@@ -570,8 +570,13 @@ private class BlockingOverlayController(
                 .toList()
             val visibleRects = VisibleRegionCalculator.calculate(target.bounds, occluders)
                 .filter { it.width >= MIN_OVERLAY_EDGE_PX && it.height >= MIN_OVERLAY_EDGE_PX }
-                .sortedByDescending { it.area }
-            visibleRects.mapIndexed { index, rect -> OverlayPiece(target, rect, showControls = index == 0) }
+            val orderedRects = BlockingControlsPlacement.order(
+                target = target.bounds,
+                visibleRects = visibleRects,
+                minWidth = MIN_CARD_WIDTH_PX,
+                minHeight = MIN_CARD_HEIGHT_PX
+            )
+            orderedRects.mapIndexed { index, rect -> OverlayPiece(target, rect, showControls = index == 0) }
         }
         val signature = pieces.joinToString("|") { piece ->
             "${piece.target.windowId}:${piece.target.reason}:${piece.rect}:${piece.showControls}"
