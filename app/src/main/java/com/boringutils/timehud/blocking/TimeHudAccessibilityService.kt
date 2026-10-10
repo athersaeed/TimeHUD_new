@@ -422,8 +422,29 @@ class TimeHudAccessibilityService : AccessibilityService() {
             layer = window.layer,
             type = window.type,
             isFocused = window.isFocused,
-            isActive = window.isActive
+            isActive = window.isActive,
+            isVolumePanel = isVolumePanel(window)
         )
+    }
+
+    private fun isVolumePanel(window: AccessibilityWindowInfo): Boolean {
+        if (window.type != AccessibilityWindowInfo.TYPE_SYSTEM) return false
+        val root = runCatching { window.root }.getOrNull() ?: return false
+        val nodes = ArrayDeque<AccessibilityNodeInfo>()
+        nodes.add(root)
+        var visited = 0
+        while (nodes.isNotEmpty() && visited < MAX_VOLUME_WINDOW_NODES) {
+            val node = nodes.removeFirst()
+            visited++
+            val viewId = node.viewIdResourceName.orEmpty()
+            if (BlockingOccluderPolicy.isVolumeControlId(viewId)) {
+                return true
+            }
+            for (index in 0 until node.childCount) {
+                node.getChild(index)?.let(nodes::addLast)
+            }
+        }
+        return false
     }
 
     private companion object {
@@ -431,6 +452,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         const val HOME_NAVIGATION_DELAY_MS = 350L
         const val MAX_LIMIT_TIMER_DELAY_MS = 30_000L
         const val BRICK_CATALOG_REFRESH_MS = 60_000L
+        const val MAX_VOLUME_WINDOW_NODES = 80
     }
 }
 
@@ -440,7 +462,8 @@ private data class WindowGeometry(
     val layer: Int,
     val type: Int,
     val isFocused: Boolean,
-    val isActive: Boolean
+    val isActive: Boolean,
+    val isVolumePanel: Boolean
 ) {
     fun isCompact(displayMetrics: android.util.DisplayMetrics): Boolean =
         bounds.width < displayMetrics.widthPixels * COMPACT_WINDOW_RATIO &&
@@ -564,6 +587,7 @@ private class BlockingOverlayController(
                     BlockingOccluderPolicy.shouldPreserve(
                         targetBounds = target.bounds,
                         occluderBounds = window.bounds,
+                        isVolumePanel = window.isVolumePanel,
                     )
                 }
                 .map { it.bounds }

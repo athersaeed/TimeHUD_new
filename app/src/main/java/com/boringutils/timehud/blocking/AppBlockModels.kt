@@ -292,10 +292,17 @@ internal object BlockingControlsPlacement {
 }
 
 internal object BlockingOccluderPolicy {
+    fun isVolumeControlId(viewId: String): Boolean =
+        viewId.contains("volume", ignoreCase = true)
+
     fun shouldPreserve(
         targetBounds: ScreenRect,
         occluderBounds: ScreenRect,
+        isVolumePanel: Boolean = false,
     ): Boolean {
+        // Volume-window bounds can include transparent space around the slider;
+        // subtracting them unnecessarily resizes the blocking check-in.
+        if (isVolumePanel) return false
         if (targetBounds.width <= 0 || targetBounds.height <= 0) return true
 
         val isCompactFloatingBubble =

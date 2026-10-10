@@ -359,6 +359,32 @@ class AppBlockingTest {
         )
     }
 
+    @Test
+    fun volume_control_does_not_shrink_blocker() {
+        val target = ScreenRect(0, 0, 626, 1_280)
+        val volumeWindow = ScreenRect(497, 285, 626, 683)
+
+        assertTrue(BlockingOccluderPolicy.isVolumeControlId("com.android.systemui:id/volume_dialog"))
+        assertTrue(BlockingOccluderPolicy.isVolumeControlId("com.samsung.systemui.volume:id/slider"))
+        assertFalse(BlockingOccluderPolicy.isVolumeControlId("com.android.systemui:id/status_bar"))
+        assertFalse(
+            BlockingOccluderPolicy.shouldPreserve(
+                targetBounds = target,
+                occluderBounds = volumeWindow,
+                isVolumePanel = true,
+            )
+        )
+        assertEquals(
+            listOf(target),
+            VisibleRegionCalculator.calculate(
+                target,
+                listOf(volumeWindow).filter {
+                    BlockingOccluderPolicy.shouldPreserve(target, it, isVolumePanel = true)
+                }
+            )
+        )
+    }
+
     private fun rule(
         packageName: String,
         dailyLimitMinutes: Int? = null,
