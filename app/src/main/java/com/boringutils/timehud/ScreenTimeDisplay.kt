@@ -15,15 +15,22 @@ internal object ScreenTimeDisplay {
     }
 
     // Provider access must run on a worker dispatcher, never while attaching a window.
-    fun queryMs(context: Context, nowMs: Long = System.currentTimeMillis()): Long {
+    fun queryMs(context: Context, nowMs: Long = System.currentTimeMillis()): Long =
+        queryRangeMs(context, currentUsagePeriodStart(nowMs), nowMs, includeCurrentState = true)
+
+    fun queryRangeMs(
+        context: Context,
+        start: Long,
+        end: Long,
+        includeCurrentState: Boolean = false
+    ): Long {
         val usage = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
             ?: throw IllegalStateException("Usage service unavailable")
         val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
             ?: throw IllegalStateException("Power service unavailable")
-        val start = currentUsagePeriodStart(nowMs)
-        val events = usage.queryEvents(start, nowMs)
+        val events = usage.queryEvents(start, end)
             ?: throw IllegalStateException("Usage history unavailable")
-        val calculator = ScreenTimeCalculator(start, nowMs)
+        val calculator = ScreenTimeCalculator(start, end)
         val event = UsageEvents.Event()
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
@@ -34,6 +41,6 @@ internal object ScreenTimeDisplay {
                 16 -> calculator.record(event.timeStamp, interactive = false)
             }
         }
-        return calculator.total(power.isInteractive)
+        return calculator.total(includeCurrentState && power.isInteractive)
     }
 }

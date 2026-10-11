@@ -1,12 +1,14 @@
 package com.boringutils.timehud.ui.usage
 
+import android.graphics.Bitmap
 import java.util.Calendar
 import java.util.TimeZone
 
 internal data class AppUsageEntry(
     val packageName: String,
     val appName: String,
-    val durationMs: Long
+    val durationMs: Long,
+    val icon: Bitmap? = null
 )
 
 internal data class AppUsageSummary(
@@ -30,7 +32,8 @@ internal data class AppUsageEvent(
 
 internal enum class AppUsageEventType {
     FOREGROUND,
-    BACKGROUND
+    BACKGROUND,
+    SCREEN_OFF
 }
 
 internal object AppUsageCalculator {
@@ -44,12 +47,21 @@ internal object AppUsageCalculator {
         val durations = mutableMapOf<String, Long>()
         val activeSince = mutableMapOf<String, Long>()
         val seenPackages = mutableSetOf<String>()
+        var canInferBoundaryUsage = true
 
         events.asSequence()
             .filter { it.timestampMs in periodStartMs..periodEndMs }
             .sortedBy { it.timestampMs }
             .forEach { event ->
                 when (event.type) {
+                    AppUsageEventType.SCREEN_OFF -> {
+                        activeSince.forEach { (packageName, start) ->
+                            durations[packageName] = durations.getOrDefault(packageName, 0L) +
+                                (event.timestampMs - start).coerceAtLeast(0L)
+                        }
+                        activeSince.clear()
+                        canInferBoundaryUsage = false
+                    }
                     AppUsageEventType.FOREGROUND -> {
                         seenPackages += event.packageName
                         activeSince.putIfAbsent(event.packageName, event.timestampMs)
@@ -58,7 +70,7 @@ internal object AppUsageCalculator {
                     AppUsageEventType.BACKGROUND -> {
                         val activeStart = activeSince.remove(event.packageName)
                         val firstKnownEvent = seenPackages.add(event.packageName)
-                        val intervalStart = activeStart ?: if (firstKnownEvent) periodStartMs else null
+                        val intervalStart = activeStart ?: if (firstKnownEvent && canInferBoundaryUsage) periodStartMs else null
                         if (intervalStart != null && event.timestampMs > intervalStart) {
                             durations[event.packageName] =
                                 durations.getOrDefault(event.packageName, 0L) +
@@ -92,6 +104,40 @@ internal fun currentUsagePeriodStart(
     set(Calendar.SECOND, 0)
     set(Calendar.MILLISECOND, 0)
     timeInMillis
+}
+
+internal enum class AppUsagePeriod { TODAY, YESTERDAY, PAST_WEEK }
+
+internal data class AppUsageRange(val startMs: Long, val endMs: Long)
+
+internal fun appUsageRange(
+    period: AppUsagePeriod,
+    nowMs: Long,
+    timeZone: TimeZone = TimeZone.getDefault()
+): AppUsageRange {
+    val todayStart = currentUsagePeriodStart(nowMs, timeZone)
+    fun shift(start: Long, days: Int): Long = Calendar.getInstance(timeZone).run {
+        timeInMillis = start
+        add(Calendar.DAY_OF_YEAR, days)
+        timeInMillis
+    }
+    return when (period) {
+        AppUsagePeriod.TODAY -> AppUsageRange(todayStart, nowMs)
+        AppUsagePeriod.YESTERDAY -> AppUsageRange(shift(todayStart, -1), todayStart)
+        AppUsagePeriod.PAST_WEEK -> {
+            // Android retains daily summaries longer than detailed events. Use
+            // calendar days for this range instead of implying exact 3 AM slices.
+            val midnight = Calendar.getInstance(timeZone).run {
+                timeInMillis = nowMs
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+                timeInMillis
+            }
+            AppUsageRange(shift(midnight, -6), nowMs)
+        }
+    }
 }
 
 internal fun formatAppUsageDuration(durationMs: Long): String {

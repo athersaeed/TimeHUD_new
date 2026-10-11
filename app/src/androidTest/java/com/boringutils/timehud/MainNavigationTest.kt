@@ -15,6 +15,23 @@ class MainNavigationTest {
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test
+    fun usage_period_can_be_changed_without_usage_permission() {
+        val context = composeRule.activity
+        composeRule.onNodeWithContentDescription(context.getString(R.string.open_navigation_menu))
+            .performClick()
+        composeRule.onNodeWithText(context.getString(R.string.nav_app_usage)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.app_usage_today)).assertExists()
+        val chooser = context.getString(R.string.app_usage_choose_period)
+        composeRule.onNodeWithContentDescription(chooser).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.app_usage_yesterday)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.app_usage_yesterday)).assertExists()
+        composeRule.onNodeWithContentDescription(chooser).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.app_usage_week)).performClick()
+        composeRule.onNodeWithText(context.getString(R.string.app_usage_week)).assertExists()
+        composeRule.onNodeWithText(context.getString(R.string.app_usage_week_note)).assertExists()
+    }
+
+    @Test
     fun drawer_opens_app_usage_brick_mode_app_limits_and_permissions_pages() {
         val context = composeRule.activity
         val openMenu = context.getString(R.string.open_navigation_menu)
@@ -25,11 +42,11 @@ class MainNavigationTest {
 
         composeRule.onNodeWithContentDescription(openMenu).performClick()
         composeRule.onNodeWithText(context.getString(R.string.nav_brick_mode)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.brick_mode_heading)).assertExists()
+        composeRule.onNodeWithText(context.getString(R.string.brick_mode_description)).assertExists()
 
         composeRule.onNodeWithContentDescription(openMenu).performClick()
         composeRule.onNodeWithText(context.getString(R.string.nav_app_limits)).performClick()
-        composeRule.onNodeWithText(context.getString(R.string.app_blocking_heading)).assertExists()
+        composeRule.onNodeWithText(context.getString(R.string.app_blocking_description)).assertExists()
 
         composeRule.onNodeWithContentDescription(openMenu).performClick()
         composeRule.onNodeWithText(context.getString(R.string.nav_permissions)).performClick()

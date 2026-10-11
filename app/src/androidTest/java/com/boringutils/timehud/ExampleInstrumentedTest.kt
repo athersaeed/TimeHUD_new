@@ -79,11 +79,13 @@ class ExampleInstrumentedTest {
     @Test
     fun active_overlay_has_a_brick_mode_shortcut() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val overlay = LayoutInflater.from(context).inflate(R.layout.overlay_active, null)
-        val shortcut = overlay.findViewById<android.widget.Button>(R.id.btn_open_brick_mode)
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val overlay = LayoutInflater.from(context).inflate(R.layout.overlay_active, null)
+            val shortcut = overlay.findViewById<android.widget.Button>(R.id.btn_open_brick_mode)
 
-        assertNotNull(shortcut)
-        assertEquals(context.getString(R.string.open_brick_mode), shortcut.text.toString())
-        assertTrue(shortcut.isEnabled)
+            assertNotNull(shortcut)
+            assertEquals(context.getString(R.string.open_brick_mode), shortcut.text.toString())
+            assertTrue(shortcut.isEnabled)
+        }
     }
 }

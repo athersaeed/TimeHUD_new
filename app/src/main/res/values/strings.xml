@@ -73,7 +73,7 @@
     <string name="agenda_remove_legacy_import">Remove old calendar text</string>
     <string name="open_permissions">Open Permissions</string>
     <string name="hud_permissions_needed">Open Permissions from the menu to enable the HUD.</string>
-    <string name="app_usage_heading">Daily app usage</string>
+    <string name="app_usage_heading">Your usage</string>
     <string name="app_usage_period">Foreground time since the 3:00 AM reset</string>
     <string name="app_usage_top_apps">Top apps</string>
     <string name="app_usage_all_apps">All apps — longest first</string>
@@ -84,7 +84,7 @@
     <string name="app_usage_unavailable_title">Usage data unavailable</string>
     <string name="app_usage_unavailable_message">Android could not provide app-usage history right now. Try refreshing.</string>
     <string name="app_usage_empty_title">No app usage yet</string>
-    <string name="app_usage_empty_message">Apps used after the 3:00 AM reset will appear here.</string>
+    <string name="app_usage_empty_message">Apps used during the selected period will appear here.</string>
     <string name="refresh">Refresh</string>
     <string name="retry">Retry</string>
     <string name="accessibility_service_label">TimeHUD App Control</string>
@@ -227,4 +227,13 @@
     <string name="privacy_policy">Privacy policy</string>
     <string name="privacy_policy_url" translatable="false">https://timehud.athers.org/privacy</string>
     <string name="privacy_policy_no_browser">No browser is available. Open the privacy policy from the TimeHUD Play Store listing on another device.</string>
+    <string name="app_usage_today">Today</string>
+    <string name="app_usage_yesterday">Yesterday</string>
+    <string name="app_usage_week">Past 7 days</string>
+    <string name="app_usage_screen_time">Total screen time</string>
+    <string name="app_usage_updated">Updated at %1$s</string>
+    <string name="app_usage_week_note">Today and the previous 6 calendar days. Android daily summaries may include full reporting intervals.</string>
+    <string name="app_usage_counting_note">App times can overlap in multi-window use. App limits count focused use, so their totals can differ.</string>
+    <string name="app_usage_screen_time_unavailable">Android does not provide a screen-time total for this period on this device. App times are shown below.</string>
+    <string name="app_usage_choose_period">Choose usage period</string>
 </resources>

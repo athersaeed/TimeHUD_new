@@ -1,5 +1,7 @@
 package com.boringutils.timehud
 
+import com.boringutils.timehud.ui.usage.AppUsagePeriod
+import com.boringutils.timehud.ui.usage.appUsageRange
 import com.boringutils.timehud.ui.usage.AppUsageCalculator
 import com.boringutils.timehud.ui.usage.AppUsageEntry
 import com.boringutils.timehud.ui.usage.AppUsageEvent
@@ -107,6 +109,61 @@ class AppUsageCalculatorTest {
         assertEquals(Calendar.AUGUST, start.get(Calendar.MONTH))
         assertEquals(31, start.get(Calendar.DAY_OF_MONTH))
         assertEquals(3, start.get(Calendar.HOUR_OF_DAY))
+    }
+
+    @Test
+    fun yesterday_uses_calendar_boundary_across_daylight_saving() {
+        val zone = TimeZone.getTimeZone("America/Toronto")
+        val now = Calendar.getInstance(zone).apply {
+            clear()
+            set(2026, Calendar.MARCH, 8, 12, 0)
+        }.timeInMillis
+        val range = appUsageRange(AppUsagePeriod.YESTERDAY, now, zone)
+        assertEquals(currentUsagePeriodStart(now, zone), range.endMs)
+        assertEquals(23 * 60 * 60_000L, range.endMs - range.startMs)
+        val start = Calendar.getInstance(zone).apply { timeInMillis = range.startMs }
+        assertEquals(7, start.get(Calendar.DAY_OF_MONTH))
+        assertEquals(3, start.get(Calendar.HOUR_OF_DAY))
+    }
+
+    @Test
+    fun weekly_range_includes_today_and_previous_six_calendar_days() {
+        val zone = TimeZone.getTimeZone("America/Toronto")
+        val now = Calendar.getInstance(zone).apply {
+            clear()
+            set(2026, Calendar.OCTOBER, 11, 2, 0)
+        }.timeInMillis
+        val range = appUsageRange(AppUsagePeriod.PAST_WEEK, now, zone)
+        val start = Calendar.getInstance(zone).apply { timeInMillis = range.startMs }
+        assertEquals(5, start.get(Calendar.DAY_OF_MONTH))
+        assertEquals(0, start.get(Calendar.HOUR_OF_DAY))
+        assertEquals(now, range.endMs)
+    }
+
+    @Test
+    fun today_range_preserves_three_am_boundary_and_current_time() {
+        val zone = TimeZone.getTimeZone("America/Toronto")
+        val now = Calendar.getInstance(zone).apply {
+            clear()
+            set(2026, Calendar.OCTOBER, 11, 2, 0)
+        }.timeInMillis
+        val range = appUsageRange(AppUsagePeriod.TODAY, now, zone)
+        assertEquals(currentUsagePeriodStart(now, zone), range.startMs)
+        assertEquals(now, range.endMs)
+    }
+
+    @Test
+    fun screen_off_closes_app_usage_and_does_not_count_background_audio() {
+        val durations = AppUsageCalculator.calculateDurations(
+            listOf(
+                event("youtube", 10_000L, AppUsageEventType.FOREGROUND),
+                event("", 70_000L, AppUsageEventType.SCREEN_OFF),
+                event("youtube", 100_000L, AppUsageEventType.BACKGROUND),
+                event("youtube", 150_000L, AppUsageEventType.FOREGROUND),
+                event("youtube", 180_000L, AppUsageEventType.BACKGROUND)
+            ), 0L, 200_000L
+        )
+        assertEquals(90_000L, durations["youtube"])
     }
 
     private fun event(

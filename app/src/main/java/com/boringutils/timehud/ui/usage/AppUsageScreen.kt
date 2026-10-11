@@ -1,6 +1,7 @@
 package com.boringutils.timehud.ui.usage
 
 import android.app.Application
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,15 +23,21 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -46,6 +53,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.boringutils.timehud.R
 import com.boringutils.timehud.ui.theme.TimeHudColors
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,8 +70,10 @@ internal enum class AppUsageError {
 internal data class AppUsageUiState(
     val isLoading: Boolean = false,
     val entries: List<AppUsageEntry> = emptyList(),
-    val screenTimeDurationMs: Long = 0L,
+    val screenTimeDurationMs: Long? = 0L,
     val periodStartMs: Long? = null,
+    val period: AppUsagePeriod = AppUsagePeriod.TODAY,
+    val updatedAtMs: Long? = null,
     val error: AppUsageError? = null
 )
 
@@ -71,29 +82,38 @@ internal class AppUsageViewModel(application: Application) : AndroidViewModel(ap
     val uiState = _uiState.asStateFlow()
     private var refreshJob: Job? = null
 
+    fun selectPeriod(period: AppUsagePeriod, permissionGranted: Boolean) {
+        if (_uiState.value.period == period) return
+        _uiState.value = AppUsageUiState(period = period, isLoading = true)
+        refresh(permissionGranted)
+    }
+
     fun refresh(permissionGranted: Boolean) {
+        val period = _uiState.value.period
         refreshJob?.cancel()
         if (!permissionGranted) {
-            _uiState.value = AppUsageUiState(error = AppUsageError.PERMISSION_REQUIRED)
+            _uiState.value = AppUsageUiState(period = period, error = AppUsageError.PERMISSION_REQUIRED)
             return
         }
 
         refreshJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             val result = withContext(Dispatchers.IO) {
-                AppUsageRepository.load(getApplication())
+                AppUsageRepository.load(getApplication(), period = period, loadIcons = true)
             }
             _uiState.value = when (result) {
                 is AppUsageLoadResult.Success -> AppUsageUiState(
                     entries = result.entries,
                     screenTimeDurationMs = result.screenTimeDurationMs,
-                    periodStartMs = result.periodStartMs
+                    periodStartMs = result.periodStartMs,
+                    period = period,
+                    updatedAtMs = System.currentTimeMillis()
                 )
                 AppUsageLoadResult.AccessDenied -> AppUsageUiState(
-                    error = AppUsageError.PERMISSION_REQUIRED
+                    period = period, error = AppUsageError.PERMISSION_REQUIRED
                 )
                 AppUsageLoadResult.Unavailable -> AppUsageUiState(
-                    error = AppUsageError.UNAVAILABLE
+                    period = period, error = AppUsageError.UNAVAILABLE
                 )
             }
         }
@@ -131,11 +151,41 @@ internal fun AppUsageScreen(
     ) {
         item {
             AppUsageHeader(
-                isRefreshing = state.isLoading && state.entries.isNotEmpty(),
+                isRefreshing = state.isLoading,
                 onRefresh = { viewModel.refresh(usagePermissionGranted) }
             )
         }
 
+        item {
+            AppUsagePeriodSelector(
+                period = state.period,
+                onSelect = { viewModel.selectPeriod(it, usagePermissionGranted) }
+            )
+            Text(
+                stringResource(if (state.period == AppUsagePeriod.PAST_WEEK)
+                    R.string.app_usage_week_note else R.string.app_usage_period),
+                color = TimeHudColors.textSecondary,
+                fontSize = 12.sp
+            )
+            state.updatedAtMs?.let { updated ->
+                Text(
+                    stringResource(R.string.app_usage_updated,
+                        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(updated))),
+                    color = TimeHudColors.textSecondary, fontSize = 12.sp
+                )
+            }
+        }
+
+        if (state.error == null && (!state.isLoading || state.updatedAtMs != null)) {
+            item {
+                if (state.screenTimeDurationMs != null) {
+                    AppUsageSummaryCard(buildAppUsageSummary(state.screenTimeDurationMs!!, state.entries))
+                } else {
+                    Text(stringResource(R.string.app_usage_screen_time_unavailable),
+                        color = TimeHudColors.textSecondary, fontSize = 13.sp)
+                }
+            }
+        }
         when {
             state.isLoading && state.entries.isEmpty() -> item { LoadingUsageCard() }
             state.error == AppUsageError.PERMISSION_REQUIRED -> item {
@@ -162,30 +212,16 @@ internal fun AppUsageScreen(
             }
             else -> {
                 item {
-                    AppUsageSummaryCard(
-                        summary = buildAppUsageSummary(
-                            screenTimeDurationMs = state.screenTimeDurationMs,
-                            entries = state.entries
-                        )
-                    )
-                }
-                item {
                     Text(
-                        text = stringResource(R.string.app_usage_top_apps),
+                        text = stringResource(R.string.app_usage_all_apps),
                         color = TimeHudColors.textPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-                item { AppUsageChart(entries = state.entries.take(MAX_CHART_APPS)) }
                 item {
-                    Text(
-                        text = stringResource(R.string.app_usage_all_apps),
-                        color = TimeHudColors.textPrimary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+                    Text(stringResource(R.string.app_usage_counting_note),
+                        color = TimeHudColors.textSecondary, fontSize = 12.sp)
                 }
                 items(
                     items = state.entries,
@@ -193,12 +229,43 @@ internal fun AppUsageScreen(
                 ) { entry ->
                     AppUsageRow(
                         entry = entry,
-                        longestDurationMs = state.entries.first().durationMs
+                        totalDurationMs = state.entries.sumOf { it.durationMs }
                     )
                 }
             }
         }
     }
+}
+
+@Composable
+private fun AppUsagePeriodSelector(period: AppUsagePeriod, onSelect: (AppUsagePeriod) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val chooserDescription = stringResource(R.string.app_usage_choose_period)
+    Box {
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.semantics { contentDescription = chooserDescription }
+        ) {
+            Text(stringResource(usagePeriodLabel(period)))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            AppUsagePeriod.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(usagePeriodLabel(option))) },
+                    onClick = {
+                        expanded = false
+                        onSelect(option)
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun usagePeriodLabel(period: AppUsagePeriod): Int = when (period) {
+    AppUsagePeriod.TODAY -> R.string.app_usage_today
+    AppUsagePeriod.YESTERDAY -> R.string.app_usage_yesterday
+    AppUsagePeriod.PAST_WEEK -> R.string.app_usage_week
 }
 
 @Composable
@@ -214,11 +281,7 @@ private fun AppUsageHeader(isRefreshing: Boolean, onRefresh: () -> Unit) {
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold
             )
-            Text(
-                text = stringResource(R.string.app_usage_period),
-                color = TimeHudColors.textSecondary,
-                fontSize = 13.sp
-            )
+
         }
         OutlinedButton(onClick = onRefresh, enabled = !isRefreshing) {
             Text(stringResource(R.string.refresh))
@@ -285,6 +348,11 @@ private fun AppUsageSummaryCard(summary: AppUsageSummary) {
             fontWeight = FontWeight.Bold
         )
         Text(
+            text = stringResource(R.string.app_usage_screen_time),
+            color = TimeHudColors.textSecondary,
+            fontSize = 14.sp
+        )
+        Text(
             text = stringResource(R.string.app_usage_total, summary.appCount),
             color = TimeHudColors.textSecondary,
             fontSize = 13.sp
@@ -293,49 +361,7 @@ private fun AppUsageSummaryCard(summary: AppUsageSummary) {
 }
 
 @Composable
-private fun AppUsageChart(entries: List<AppUsageEntry>) {
-    val longestDuration = entries.firstOrNull()?.durationMs ?: 1L
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(TimeHudColors.surface)
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        entries.forEach { entry ->
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = entry.appName,
-                        modifier = Modifier.weight(1f),
-                        color = TimeHudColors.textPrimary,
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = formatAppUsageDuration(entry.durationMs),
-                        color = TimeHudColors.textEmphasis,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                UsageBar(
-                    fraction = (entry.durationMs.toFloat() / longestDuration).coerceIn(0f, 1f),
-                    description = stringResource(
-                        R.string.app_usage_bar_description,
-                        entry.appName,
-                        formatAppUsageDuration(entry.durationMs)
-                    )
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AppUsageRow(entry: AppUsageEntry, longestDurationMs: Long) {
+private fun AppUsageRow(entry: AppUsageEntry, totalDurationMs: Long) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -351,11 +377,16 @@ private fun AppUsageRow(entry: AppUsageEntry, longestDurationMs: Long) {
                     .background(TimeHudColors.surfaceSelected),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = entry.appName.firstOrNull()?.uppercase() ?: "?",
-                    color = TimeHudColors.textEmphasis,
-                    fontWeight = FontWeight.Bold
-                )
+                if (entry.icon != null) {
+                    Image(entry.icon.asImageBitmap(), contentDescription = null,
+                        modifier = Modifier.size(38.dp))
+                } else {
+                    Text(
+                        text = entry.appName.firstOrNull()?.uppercase() ?: "?",
+                        color = TimeHudColors.textEmphasis,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
             Spacer(modifier = Modifier.size(12.dp))
             Text(
@@ -376,7 +407,7 @@ private fun AppUsageRow(entry: AppUsageEntry, longestDurationMs: Long) {
         }
         Spacer(modifier = Modifier.height(12.dp))
         UsageBar(
-            fraction = (entry.durationMs.toFloat() / longestDurationMs.coerceAtLeast(1L))
+            fraction = (entry.durationMs.toFloat() / totalDurationMs.coerceAtLeast(1L))
                 .coerceIn(0f, 1f),
             description = stringResource(
                 R.string.app_usage_bar_description,
@@ -407,5 +438,4 @@ private fun UsageBar(fraction: Float, description: String) {
     }
 }
 
-private const val MAX_CHART_APPS = 5
 private const val MIN_VISIBLE_BAR_FRACTION = 0.015f
