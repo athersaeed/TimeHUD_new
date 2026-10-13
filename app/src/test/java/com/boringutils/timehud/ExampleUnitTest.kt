@@ -32,8 +32,8 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun blocked_app_check_in_waits_then_returns_home() {
-        assertTrue(ActiveOverlayTrigger.APP_BLOCK.requiresCloseDelay)
+    fun blocked_app_check_in_closes_immediately_and_returns_home() {
+        assertFalse(ActiveOverlayTrigger.APP_BLOCK.requiresCloseDelay)
         assertTrue(ActiveOverlayTrigger.APP_BLOCK.returnsHomeOnClose)
     }
 

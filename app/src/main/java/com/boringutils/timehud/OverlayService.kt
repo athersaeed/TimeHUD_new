@@ -37,7 +37,7 @@ internal enum class ActiveOverlayTrigger(
 ) {
     BUBBLE_TAP(requiresCloseDelay = false, returnsHomeOnClose = false),
     PERIODIC_CHECK_IN(requiresCloseDelay = true, returnsHomeOnClose = false),
-    APP_BLOCK(requiresCloseDelay = true, returnsHomeOnClose = true)
+    APP_BLOCK(requiresCloseDelay = false, returnsHomeOnClose = true)
 }
 
 class OverlayService : Service() {

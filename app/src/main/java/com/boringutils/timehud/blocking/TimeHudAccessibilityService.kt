@@ -2,12 +2,14 @@ package com.boringutils.timehud.blocking
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
 import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -49,6 +51,9 @@ class TimeHudAccessibilityService : AccessibilityService() {
     @Volatile
     private var brickCatalogLoadedAtElapsedMs = 0L
 
+    private val appWindowMemory = AppWindowMemory()
+    private var rememberedAppWindows = emptyList<ObservedAppWindow>()
+
     private var focusedPackage: String? = null
     private var focusStartedElapsedMs = 0L
     private var focusStartedWallMs = 0L
@@ -84,6 +89,8 @@ class TimeHudAccessibilityService : AccessibilityService() {
         focusedPackage = null
         focusStartedElapsedMs = 0L
         focusStartedWallMs = 0L
+        appWindowMemory.clear()
+        rememberedAppWindows = emptyList()
         if (::overlayController.isInitialized) overlayController.clear()
     }
 
@@ -92,6 +99,8 @@ class TimeHudAccessibilityService : AccessibilityService() {
         destroyed.set(true)
         mainHandler.removeCallbacksAndMessages(null)
         flushFocusedUsage()
+        appWindowMemory.clear()
+        rememberedAppWindows = emptyList()
         if (::overlayController.isInitialized) overlayController.clear()
         usageExecutor.shutdownNow()
         super.onDestroy()
@@ -143,16 +152,39 @@ class TimeHudAccessibilityService : AccessibilityService() {
         ) {
             updateFocusedPackage(null)
             overlayController.clear()
+            appWindowMemory.clear()
+            rememberedAppWindows = emptyList()
             return
         }
 
         val geometries = windows.mapNotNull(::windowGeometry)
-        val appWindows = windows.mapNotNull { window ->
+        val focusedPackageOnScreen = findFocusedPackage(windows)
+        // Underlying apps can retain their focused/active flags while the shade is open.
+        val topInteractiveWindow = windows
+            .filter { it.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY }
+            .filter { it.isFocused || it.isActive }
+            .maxByOrNull { it.layer }
+        val systemPanelActive = topInteractiveWindow?.let { window ->
+            window.type == AccessibilityWindowInfo.TYPE_SYSTEM ||
+                runCatching { window.root?.packageName?.toString() }
+                    .getOrNull() == "com.android.systemui"
+        } == true
+        val windowObservationInterrupted = systemPanelActive || (
+            geometries.isEmpty() &&
+                getSystemService(PowerManager::class.java).isInteractive &&
+                !getSystemService(KeyguardManager::class.java).isKeyguardLocked
+            )
+        var hasUnreadableAppWindow = false
+        val observedAppWindows = windows.mapNotNull { window ->
             val geometry = windowGeometry(window) ?: return@mapNotNull null
             if (geometry.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@mapNotNull null
-            val root = runCatching { window.root }.getOrNull() ?: return@mapNotNull null
-            val packageName = root.packageName?.toString()?.takeIf { it.isNotBlank() }
-                ?: return@mapNotNull null
+            val root = runCatching { window.root }.getOrNull()
+            val packageName = root?.packageName?.toString()?.takeIf { it.isNotBlank() }
+            if (root == null || packageName == null) {
+                hasUnreadableAppWindow = true
+                return@mapNotNull rememberedAppWindows.firstOrNull { it.geometry.id == geometry.id }
+                    ?.copy(geometry = geometry, surface = AppSurface.UNKNOWN)
+            }
             val rule = rules[packageName]
             val brickModeDecision = BrickModeDecisionEngine.decide(
                 config = brickModeConfig,
@@ -169,7 +201,12 @@ class TimeHudAccessibilityService : AccessibilityService() {
                     root = root,
                     windowTitle = runCatching { window.title?.toString() }.getOrNull()
                 ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics))
-                AppSurfaceClassifier.classify(packageName, signals)
+                if (signals.labels.isEmpty() && signals.viewIds.isEmpty()) {
+                    hasUnreadableAppWindow = true
+                    AppSurface.UNKNOWN
+                } else {
+                    AppSurfaceClassifier.classify(packageName, signals)
+                }
             } else {
                 AppSurface.UNKNOWN
             }
@@ -182,10 +219,37 @@ class TimeHudAccessibilityService : AccessibilityService() {
             )
         }
 
-        val focusedPackageOnScreen = findFocusedPackage(windows)
+        val snapshots = appWindowMemory.update(
+            current = observedAppWindows.map {
+                AppWindowSnapshot(it.geometry.id, it.packageName, it.surface)
+            },
+            systemPanelActive = windowObservationInterrupted
+        )
+        val appWindows = snapshots.mapNotNull { snapshot ->
+            val observed = observedAppWindows.firstOrNull {
+                it.geometry.id == snapshot.windowId && it.packageName == snapshot.packageName
+            } ?: rememberedAppWindows.firstOrNull {
+                it.geometry.id == snapshot.windowId && it.packageName == snapshot.packageName
+            } ?: return@mapNotNull null
+            val rule = rules[snapshot.packageName]
+            val restriction = BrickModeDecisionEngine.decide(
+                config = brickModeConfig,
+                packageName = snapshot.packageName,
+                catalog = currentBrickModeCatalog,
+                scheduledMode = scheduledRestrictionMode,
+                nowMs = nowWallMs
+            )
+            observed.copy(
+                geometry = geometries.firstOrNull { it.id == snapshot.windowId } ?: observed.geometry,
+                surface = snapshot.surface,
+                rule = rule,
+                brickModeDecision = restriction
+            )
+        }
+        rememberedAppWindows = appWindows
         updateFocusedPackage(
             focusedPackageOnScreen?.takeIf { packageName ->
-                rules[packageName]?.dailyLimitMinutes != null
+                !systemPanelActive && rules[packageName]?.dailyLimitMinutes != null
             }
         )
         flushFocusedUsage()
@@ -231,6 +295,9 @@ class TimeHudAccessibilityService : AccessibilityService() {
             nowElapsedMs = nowElapsedMs,
             nowWallMs = nowWallMs
         )
+        if ((windowObservationInterrupted || hasUnreadableAppWindow) && appWindows.isNotEmpty()) {
+            scheduleEvaluation(delayMs = WINDOW_RECOVERY_DELAY_MS)
+        }
     }
 
     private fun updateFocusedPackage(newPackage: String?) {
@@ -449,6 +516,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
 
     private companion object {
         const val WINDOW_DEBOUNCE_MS = 120L
+        const val WINDOW_RECOVERY_DELAY_MS = 250L
         const val HOME_NAVIGATION_DELAY_MS = 350L
         const val MAX_LIMIT_TIMER_DELAY_MS = 30_000L
         const val BRICK_CATALOG_REFRESH_MS = 60_000L
