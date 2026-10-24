@@ -22,6 +22,7 @@ internal enum class AppSurface {
     MESSAGE_THREAD,
     SHORTS,
     VIDEO_SEARCH,
+    VIDEO_FEED,
     PICTURE_IN_PICTURE,
     COMMENTS,
     REELS,
@@ -51,7 +52,7 @@ internal fun supportedSurfacesFor(packageName: String): List<AppSurface> = when 
         AppSurface.MARKETPLACE
     )
     SNAPCHAT_PACKAGE -> listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES)
-    X_PACKAGE -> listOf(AppSurface.EXPLORE)
+    X_PACKAGE -> listOf(AppSurface.EXPLORE, AppSurface.VIDEO_FEED)
     else -> emptyList()
 }
 
@@ -61,6 +62,7 @@ internal enum class BlockReason {
     MESSAGE_INBOX,
     SHORTS,
     VIDEO_SEARCH,
+    VIDEO_FEED,
     PICTURE_IN_PICTURE,
     COMMENTS,
     REELS,
@@ -107,6 +109,7 @@ internal object AppBlockDecisionEngine {
     private fun AppSurface.blockReason(): BlockReason = when (this) {
         AppSurface.SHORTS -> BlockReason.SHORTS
         AppSurface.VIDEO_SEARCH -> BlockReason.VIDEO_SEARCH
+        AppSurface.VIDEO_FEED -> BlockReason.VIDEO_FEED
         AppSurface.PICTURE_IN_PICTURE -> BlockReason.PICTURE_IN_PICTURE
         AppSurface.COMMENTS -> BlockReason.COMMENTS
         AppSurface.REELS -> BlockReason.REELS
@@ -224,6 +227,11 @@ internal object AppSurfaceClassifier {
     }
 
     private fun classifyX(signals: AppUiSignals): AppSurface = when {
+        // X exposes this Compose test tag for the immersive, swipeable video player.
+        // Match the complete ID so a regular timeline's video-tab button cannot qualify.
+        signals.viewIds.any { it == "videotab" || it == "$X_PACKAGE:id/videotab" } -> {
+            AppSurface.VIDEO_FEED
+        }
         signals.hasSelectedLabel("explore", "search and explore") ||
             signals.hasViewId("explore_tab", "search_timeline", "explore_timeline") -> {
             AppSurface.EXPLORE

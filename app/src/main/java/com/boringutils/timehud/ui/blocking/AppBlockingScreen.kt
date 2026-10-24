@@ -477,7 +477,7 @@ private fun BlockableAppRow(app: BlockableAppUi, onEdit: () -> Unit) {
 }
 
 @Composable
-private fun AppRuleDialog(
+internal fun AppRuleDialog(
     app: BlockableAppUi,
     onDismiss: () -> Unit,
     onSave: (AppBlockRule) -> Unit,
@@ -535,6 +535,13 @@ private fun AppRuleDialog(
                                 blockedSurfaces - surface
                             }
                         }
+                    )
+                }
+                if (AppSurface.VIDEO_FEED in surfaceOptions) {
+                    Text(
+                        text = stringResource(R.string.app_blocking_video_feed_note),
+                        color = TimeHudColors.textSecondary,
+                        fontSize = 12.sp
                     )
                 }
                 if (app.packageName == INSTAGRAM_PACKAGE) {
@@ -636,6 +643,7 @@ private fun surfaceOptionLabel(surface: AppSurface): String = stringResource(
     when (surface) {
         AppSurface.SHORTS -> R.string.app_blocking_block_shorts
         AppSurface.VIDEO_SEARCH -> R.string.app_blocking_block_video_search
+        AppSurface.VIDEO_FEED -> R.string.app_blocking_block_video_feed
         AppSurface.PICTURE_IN_PICTURE -> R.string.app_blocking_block_picture_in_picture
         AppSurface.COMMENTS -> R.string.app_blocking_block_comments
         AppSurface.REELS -> R.string.app_blocking_block_reels
@@ -655,6 +663,7 @@ private fun surfaceSummaryLabel(surface: AppSurface): String = stringResource(
     when (surface) {
         AppSurface.SHORTS -> R.string.app_blocking_summary_shorts
         AppSurface.VIDEO_SEARCH -> R.string.app_blocking_summary_video_search
+        AppSurface.VIDEO_FEED -> R.string.app_blocking_summary_video_feed
         AppSurface.PICTURE_IN_PICTURE -> R.string.app_blocking_summary_picture_in_picture
         AppSurface.COMMENTS -> R.string.app_blocking_summary_comments
         AppSurface.REELS -> R.string.app_blocking_summary_reels

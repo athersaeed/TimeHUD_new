@@ -168,7 +168,10 @@ class AppBlockingTest {
             listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES),
             supportedSurfacesFor(SNAPCHAT_PACKAGE)
         )
-        assertEquals(listOf(AppSurface.EXPLORE), supportedSurfacesFor(X_PACKAGE))
+        assertEquals(
+            listOf(AppSurface.EXPLORE, AppSurface.VIDEO_FEED),
+            supportedSurfacesFor(X_PACKAGE)
+        )
     }
 
     @Test
@@ -200,6 +203,66 @@ class AppBlockingTest {
                 AppSurfaceClassifier.classify(packageName, signals)
             )
         }
+    }
+
+    @Test
+    fun x_video_feed_blocks_only_when_its_rule_is_enabled() {
+        val signals = signals(viewId = "videotab")
+        val surface = AppSurfaceClassifier.classify(X_PACKAGE, signals)
+        assertEquals(AppSurface.VIDEO_FEED, surface)
+        assertEquals(
+            BlockDecision.Block(BlockReason.VIDEO_FEED),
+            AppBlockDecisionEngine.decide(
+                rule(X_PACKAGE, blockedSurfaces = setOf(AppSurface.VIDEO_FEED)), 0L, surface
+            )
+        )
+        assertEquals(
+            BlockDecision.Allow,
+            AppBlockDecisionEngine.decide(
+                rule(X_PACKAGE, blockedSurfaces = setOf(AppSurface.EXPLORE)), 0L, surface
+            )
+        )
+    }
+
+    @Test
+    fun x_video_feed_has_priority_over_underlying_explore_signals() {
+        assertEquals(
+            AppSurface.VIDEO_FEED,
+            AppSurfaceClassifier.classify(
+                X_PACKAGE,
+                signals(selected = "explore", viewIds = setOf("videotab", "explore_timeline"))
+            )
+        )
+        assertEquals(
+            AppSurface.VIDEO_FEED,
+            AppSurfaceClassifier.classify(X_PACKAGE, signals(viewId = "$X_PACKAGE:id/videotab"))
+        )
+    }
+
+    @Test
+    fun x_timeline_and_photo_controls_do_not_qualify_as_video_feed() {
+        listOf("mainlanding", "scaffold_home_tabbed", "video_tab_button", "videotab_button", "photo_viewer")
+            .forEach { viewId ->
+                val surface = AppSurfaceClassifier.classify(
+                    X_PACKAGE,
+                    AppUiSignals(
+                        labels = setOf("video", "back", "more options", "like", "share", "follow"),
+                        viewIds = setOf(viewId)
+                    )
+                )
+                assertEquals(AppSurface.OTHER, surface)
+                assertEquals(
+                    BlockDecision.Allow,
+                    AppBlockDecisionEngine.decide(
+                        rule(X_PACKAGE, blockedSurfaces = setOf(AppSurface.VIDEO_FEED)), 0L, surface
+                    )
+                )
+            }
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(X_PACKAGE, AppUiSignals()))
+        assertEquals(
+            AppSurface.UNKNOWN,
+            AppSurfaceClassifier.classify("other.app", signals(viewId = "videotab"))
+        )
     }
 
     @Test

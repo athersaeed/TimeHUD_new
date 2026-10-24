@@ -199,7 +199,8 @@ class TimeHudAccessibilityService : AccessibilityService() {
             val surface = if (rule != null && brickModeDecision == BlockDecision.Allow) {
                 val signals = AppWindowInspector.inspect(
                     root = root,
-                    windowTitle = runCatching { window.title?.toString() }.getOrNull()
+                    windowTitle = runCatching { window.title?.toString() }.getOrNull(),
+                    packageName = packageName
                 ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics))
                 if (signals.labels.isEmpty() && signals.viewIds.isEmpty()) {
                     hasUnreadableAppWindow = true
@@ -557,10 +558,14 @@ private data class BlockTarget(
     val reason: BlockReason
 )
 
-private object AppWindowInspector {
+internal object AppWindowInspector {
     private const val MAX_NODES = 600
 
-    fun inspect(root: AccessibilityNodeInfo, windowTitle: String?): AppUiSignals {
+    fun inspect(
+        root: AccessibilityNodeInfo,
+        windowTitle: String?,
+        packageName: String
+    ): AppUiSignals {
         val labels = mutableSetOf<String>()
         val selectedLabels = mutableSetOf<String>()
         val focusedLabels = mutableSetOf<String>()
@@ -578,6 +583,14 @@ private object AppWindowInspector {
                 .filter { it.isNotEmpty() }
             labels += nodeLabels
             if (node.isSelected) selectedLabels += nodeLabels
+            // X's Compose tabs expose selection on an unlabeled parent and the
+            // navigation description on a child. Do not propagate arbitrary post text.
+            if (packageName == X_PACKAGE) {
+                node.contentDescription?.toString()?.normalizeSignal()
+                    ?.takeIf { it == "explore" || it == "search and explore" }
+                    ?.takeIf { !node.isEditable && hasSelectedTabAncestor(node) }
+                    ?.let(selectedLabels::add)
+            }
             if (node.isFocused) focusedLabels += nodeLabels
             if (node.isEditable) editableLabels += nodeLabels
             node.viewIdResourceName?.normalizeSignal()?.takeIf { it.isNotEmpty() }?.let(viewIds::add)
@@ -590,6 +603,21 @@ private object AppWindowInspector {
             viewIds = viewIds,
             windowTitle = windowTitle.orEmpty().normalizeSignal()
         )
+    }
+
+    private fun hasSelectedTabAncestor(node: AccessibilityNodeInfo): Boolean {
+        var ancestor = node.parent
+        repeat(2) {
+            val parent = ancestor ?: return false
+            if (parent.isSelected && parent.isFocusable &&
+                !parent.isEditable && !parent.isScrollable &&
+                parent.text.isNullOrBlank() && parent.contentDescription.isNullOrBlank()
+            ) {
+                return true
+            }
+            ancestor = parent.parent
+        }
+        return false
     }
 
     private fun traverse(root: AccessibilityNodeInfo, visit: (AccessibilityNodeInfo) -> Unit) {

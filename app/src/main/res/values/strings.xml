@@ -115,6 +115,8 @@
     <string name="app_blocking_limit_error">Enter between 1 and 1440 minutes.</string>
     <string name="app_blocking_block_shorts">Block YouTube Shorts</string>
     <string name="app_blocking_block_video_search">Block video search</string>
+    <string name="app_blocking_block_video_feed">Block video feed</string>
+    <string name="app_blocking_video_feed_note">Blocks X’s full-screen, swipeable video feed, including videos opened from posts. Videos playing within the timeline remain available.</string>
     <string name="app_blocking_block_picture_in_picture">Block picture-in-picture mode</string>
     <string name="app_blocking_block_comments">Block comments</string>
     <string name="app_blocking_block_reels">Block Reels</string>
@@ -129,6 +131,7 @@
     <string name="app_blocking_summary_limit">%1$d min/day</string>
     <string name="app_blocking_summary_shorts">Shorts blocked</string>
     <string name="app_blocking_summary_video_search">Search blocked</string>
+    <string name="app_blocking_summary_video_feed">Video feed blocked</string>
     <string name="app_blocking_summary_picture_in_picture">PiP blocked</string>
     <string name="app_blocking_summary_comments">Comments blocked</string>
     <string name="app_blocking_summary_reels">Reels blocked</string>
