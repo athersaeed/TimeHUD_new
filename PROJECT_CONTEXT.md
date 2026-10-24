@@ -6,6 +6,10 @@ Last implementation update: 2026-09-17
 
 This document is a source-based technical handoff for the checked-in Android project. It describes the current repository, not a proposed architecture. Generated content under `app/build/`, `.gradle/`, `.gradle-work/`, and `.kotlin/` was ignored except for verification reports and build artifacts produced during this audit.
 
+## Sleep Mode (2026-10-24)
+
+Usage restrictions also includes Sleep Mode with a separate persisted allow-list capped at five user-chosen apps. Protected essential apps remain available and do not count toward the cap. Sleep Mode supports the same manual switch, countdown timer, and weekly/overnight schedules. Overlap priority is Sleep Mode, then Brick Mode, then Restricted Mode. Existing lists and schedules remain unchanged; Sleep Mode starts with an empty chosen-app list. Sleep Mode allows editing its list while active, subject to the five-app cap; Brick Mode retains its existing active-session list lock.
+
 ## 1. App overview
 
 ### Identity and purpose

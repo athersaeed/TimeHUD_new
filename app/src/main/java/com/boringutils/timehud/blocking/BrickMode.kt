@@ -15,6 +15,7 @@ internal data class BrickModeConfig(
     val mode: UsageRestrictionMode = UsageRestrictionMode.RESTRICTED,
     val restrictedAllowedPackages: Set<String> = emptySet(),
     val brickAllowedPackages: Set<String> = emptySet(),
+    val sleepAllowedPackages: Set<String> = emptySet(),
     val endsAtEpochMs: Long? = null
 ) {
     fun isActive(nowMs: Long): Boolean =
@@ -27,12 +28,14 @@ internal data class BrickModeConfig(
     fun allowedPackagesFor(mode: UsageRestrictionMode): Set<String> = when (mode) {
         UsageRestrictionMode.RESTRICTED -> restrictedAllowedPackages
         UsageRestrictionMode.BRICK -> brickAllowedPackages
+        UsageRestrictionMode.SLEEP -> sleepAllowedPackages
     }
 }
 
 internal enum class UsageRestrictionMode(val storageValue: String) {
     RESTRICTED("restricted"),
-    BRICK("brick");
+    BRICK("brick"),
+    SLEEP("sleep");
 
     companion object {
         fun fromStorageValue(value: String?): UsageRestrictionMode? = entries
@@ -42,11 +45,21 @@ internal enum class UsageRestrictionMode(val storageValue: String) {
 
 internal object UsageRestrictionPolicy {
     const val MAX_BRICK_ALLOWED_APPS = 8
+    const val MAX_SLEEP_ALLOWED_APPS = 5
+
+    fun maxAllowedApps(mode: UsageRestrictionMode): Int? = when (mode) {
+        UsageRestrictionMode.RESTRICTED -> null
+        UsageRestrictionMode.BRICK -> MAX_BRICK_ALLOWED_APPS
+        UsageRestrictionMode.SLEEP -> MAX_SLEEP_ALLOWED_APPS
+    }
 
     fun strongestMode(
         first: UsageRestrictionMode?,
         second: UsageRestrictionMode?
     ): UsageRestrictionMode? = when {
+        first == UsageRestrictionMode.SLEEP || second == UsageRestrictionMode.SLEEP -> {
+            UsageRestrictionMode.SLEEP
+        }
         first == UsageRestrictionMode.BRICK || second == UsageRestrictionMode.BRICK -> {
             UsageRestrictionMode.BRICK
         }
@@ -66,7 +79,7 @@ internal object UsageRestrictionPolicy {
     )
 
     fun canAddPackage(mode: UsageRestrictionMode, selectedCount: Int): Boolean =
-        mode != UsageRestrictionMode.BRICK || selectedCount < MAX_BRICK_ALLOWED_APPS
+        maxAllowedApps(mode)?.let { selectedCount < it } ?: true
 
     fun isModeActive(
         config: BrickModeConfig,
@@ -143,6 +156,7 @@ internal object BrickModeSchedulePolicy {
             .map(BrickModeSchedule::mode)
             .toSet()
         return when {
+            UsageRestrictionMode.SLEEP in activeModes -> UsageRestrictionMode.SLEEP
             UsageRestrictionMode.BRICK in activeModes -> UsageRestrictionMode.BRICK
             UsageRestrictionMode.RESTRICTED in activeModes -> UsageRestrictionMode.RESTRICTED
             else -> null
@@ -239,6 +253,7 @@ internal object BrickModeSettings {
     private const val MODE_KEY = "mode"
     private const val RESTRICTED_ALLOWED_PACKAGES_KEY = "allowed_packages"
     private const val BRICK_ALLOWED_PACKAGES_KEY = "brick_allowed_packages"
+    private const val SLEEP_ALLOWED_PACKAGES_KEY = "sleep_allowed_packages"
     private const val ENDS_AT_EPOCH_MS_KEY = "ends_at_epoch_ms"
     private const val SCHEDULES_KEY = "schedules"
 
@@ -253,6 +268,9 @@ internal object BrickModeSettings {
                 .orEmpty()
                 .filterTo(mutableSetOf()) { it.isNotBlank() },
             brickAllowedPackages = preferences.getStringSet(BRICK_ALLOWED_PACKAGES_KEY, emptySet())
+                .orEmpty()
+                .filterTo(mutableSetOf()) { it.isNotBlank() },
+            sleepAllowedPackages = preferences.getStringSet(SLEEP_ALLOWED_PACKAGES_KEY, emptySet())
                 .orEmpty()
                 .filterTo(mutableSetOf()) { it.isNotBlank() },
             endsAtEpochMs = preferences.getLong(ENDS_AT_EPOCH_MS_KEY, 0L)
@@ -322,6 +340,7 @@ internal object BrickModeSettings {
         val packagesKey = when (mode) {
             UsageRestrictionMode.RESTRICTED -> RESTRICTED_ALLOWED_PACKAGES_KEY
             UsageRestrictionMode.BRICK -> BRICK_ALLOWED_PACKAGES_KEY
+            UsageRestrictionMode.SLEEP -> SLEEP_ALLOWED_PACKAGES_KEY
         }
         val packages = preferences.getStringSet(packagesKey, emptySet())
             .orEmpty()

@@ -153,7 +153,7 @@
     <string name="app_limit_grace_countdown">Grace %1$s · End</string>
     <string name="app_limit_grace_countdown_description">Grace-period time remaining. Tap to end grace now.</string>
     <string name="brick_mode_heading">Usage restrictions</string>
-    <string name="brick_mode_description">Use Restricted Mode for a flexible allow-list, or Brick Mode for a strict list of up to 8 apps. Essential apps stay available automatically.</string>
+    <string name="brick_mode_description">Choose Restricted Mode for a flexible allow-list, Brick Mode for up to 8 apps, or Sleep Mode for up to 5 bedtime apps. Essential apps stay available automatically.</string>
     <string name="restricted_mode_name">Restricted Mode</string>
     <string name="strict_brick_mode_name">Brick Mode</string>
     <string name="restriction_mode_selector_title">Restriction level</string>
@@ -200,7 +200,7 @@
     <string name="brick_mode_timer_remaining">%1$s remaining</string>
     <string name="brick_mode_active_scheduled">%1$s is on — scheduled</string>
     <string name="brick_mode_schedules_title">Schedules</string>
-    <string name="brick_mode_schedules_description">Automatically start Restricted Mode or Brick Mode at recurring weekly times.</string>
+    <string name="brick_mode_schedules_description">Automatically start Restricted Mode, Brick Mode, or Sleep Mode at recurring weekly times.</string>
     <string name="brick_mode_schedules_empty">No schedules yet.</string>
     <string name="brick_mode_schedule_add">Add</string>
     <string name="brick_mode_schedule_dialog_title">Add restriction schedule</string>
@@ -236,4 +236,9 @@
     <string name="app_usage_counting_note">App times can overlap in multi-window use. App limits count focused use, so their totals can differ.</string>
     <string name="app_usage_screen_time_unavailable">Android does not provide a screen-time total for this period on this device. App times are shown below.</string>
     <string name="app_usage_choose_period">Choose usage period</string>
+    <string name="sleep_mode_name">Sleep Mode</string>
+    <string name="sleep_mode_description">Choose up to 5 bedtime apps. Essential apps stay available without counting toward the limit. Sleep Mode takes priority when sessions overlap.</string>
+    <string name="sleep_mode_choose_apps">Choose up to 5 apps</string>
+    <string name="sleep_mode_limit_reached_title">5-app limit reached</string>
+    <string name="sleep_mode_limit_reached_message">Remove one chosen app before allowing another in Sleep Mode.</string>
 </resources>

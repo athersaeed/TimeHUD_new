@@ -294,6 +294,67 @@ class BrickModeTest {
     }
 
     @Test
+    fun sleep_mode_accepts_fewer_than_five_apps_and_rejects_a_sixth() {
+        for (count in 0 until 5) {
+            assertTrue(UsageRestrictionPolicy.canAddPackage(UsageRestrictionMode.SLEEP, count))
+        }
+        assertTrue(!UsageRestrictionPolicy.canAddPackage(UsageRestrictionMode.SLEEP, 5))
+        assertTrue(!UsageRestrictionPolicy.canAddPackage(UsageRestrictionMode.SLEEP, 6))
+    }
+
+    @Test
+    fun sleep_mode_uses_its_own_list_and_preserves_protected_apps() {
+        val config = BrickModeConfig(
+            enabled = true,
+            mode = UsageRestrictionMode.SLEEP,
+            brickAllowedPackages = setOf("com.example.social"),
+            sleepAllowedPackages = setOf("com.example.maps")
+        )
+        assertEquals(BlockDecision.Allow, BrickModeDecisionEngine.decide(config, "com.example.maps", catalog))
+        assertEquals(BlockDecision.Allow, BrickModeDecisionEngine.decide(config, "com.android.settings", catalog))
+        assertEquals(BlockDecision.Allow, BrickModeDecisionEngine.decide(config, "background.service", catalog))
+        assertEquals(
+            BlockDecision.Block(BlockReason.BRICK_MODE),
+            BrickModeDecisionEngine.decide(config, "com.example.social", catalog)
+        )
+    }
+
+    @Test
+    fun overnight_sleep_schedule_wins_over_brick_and_ends_on_time() {
+        val sleep = schedule(
+            mode = UsageRestrictionMode.SLEEP,
+            daysOfWeek = setOf(Calendar.FRIDAY),
+            startMinuteOfDay = 23 * 60,
+            durationMinutes = 8 * 60
+        )
+        val brick = sleep.copy(id = "brick", mode = UsageRestrictionMode.BRICK)
+        val activeTime = utcMillis(2026, Calendar.SEPTEMBER, 12, 6, 59)
+        val schedules = BrickModeScheduleCodec.decode(BrickModeScheduleCodec.encode(listOf(sleep, brick)))
+        assertEquals(listOf(sleep, brick), schedules)
+        assertEquals(UsageRestrictionMode.SLEEP, BrickModeSchedulePolicy.activeMode(schedules, activeTime, utc))
+        assertEquals(null, BrickModeSchedulePolicy.activeMode(schedules, utcMillis(2026, Calendar.SEPTEMBER, 12, 7, 0), utc))
+        assertEquals(
+            UsageRestrictionMode.SLEEP,
+            UsageRestrictionPolicy.effectiveMode(
+                BrickModeConfig(enabled = true, mode = UsageRestrictionMode.BRICK),
+                UsageRestrictionMode.SLEEP, activeTime
+            )
+        )
+        assertEquals(
+            UsageRestrictionMode.SLEEP,
+            UsageRestrictionPolicy.strongestMode(UsageRestrictionMode.SLEEP, UsageRestrictionMode.BRICK)
+        )
+        assertEquals(
+            BlockDecision.Block(BlockReason.BRICK_MODE),
+            BrickModeDecisionEngine.decide(
+                config = BrickModeConfig(brickAllowedPackages = setOf("com.example.social")),
+                packageName = "com.example.social", catalog = catalog,
+                scheduledMode = UsageRestrictionMode.SLEEP, nowMs = activeTime
+            )
+        )
+    }
+
+    @Test
     fun brick_mode_allows_at_most_eight_chosen_apps() {
         assertTrue(
             UsageRestrictionPolicy.canAddPackage(

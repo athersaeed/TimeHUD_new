@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -287,8 +289,8 @@ internal fun BrickModeScreen(
                 nowMs
             )
     val brickSelectionLocked = state.mode == UsageRestrictionMode.BRICK && brickModeActive
-    val brickLimitReached = state.mode == UsageRestrictionMode.BRICK &&
-        selectedCount >= UsageRestrictionPolicy.MAX_BRICK_ALLOWED_APPS
+    val maxAllowedApps = UsageRestrictionPolicy.maxAllowedApps(state.mode)
+    val appLimitReached = !UsageRestrictionPolicy.canAddPackage(state.mode, selectedCount)
     val remainingTimeText = state.endsAtEpochMs
         ?.takeIf { state.enabled }
         ?.let { endsAtEpochMs -> formatBrickModeRemaining(endsAtEpochMs - nowMs) }
@@ -351,13 +353,7 @@ internal fun BrickModeScreen(
                 configuredMode = state.mode,
                 manualEnabled = state.enabled,
                 scheduledActive = scheduledMode != null &&
-                    (
-                        !state.enabled ||
-                            (
-                                state.mode == UsageRestrictionMode.RESTRICTED &&
-                                    scheduledMode == UsageRestrictionMode.BRICK
-                            )
-                    ),
+                    (!state.enabled || effectiveActiveMode != state.mode),
                 selectedCount = selectedCount,
                 remainingTimeText = remainingTimeText,
                 onEnabledChange = { enabled ->
@@ -435,11 +431,17 @@ internal fun BrickModeScreen(
                     message = stringResource(R.string.brick_mode_apps_locked_message)
                 )
             }
-        } else if (brickLimitReached) {
+        } else if (appLimitReached) {
             item {
                 BrickModeMessageCard(
-                    title = stringResource(R.string.brick_mode_limit_reached_title),
-                    message = stringResource(R.string.brick_mode_limit_reached_message)
+                    title = stringResource(
+                        if (state.mode == UsageRestrictionMode.SLEEP) R.string.sleep_mode_limit_reached_title
+                        else R.string.brick_mode_limit_reached_title
+                    ),
+                    message = stringResource(
+                        if (state.mode == UsageRestrictionMode.SLEEP) R.string.sleep_mode_limit_reached_message
+                        else R.string.brick_mode_limit_reached_message
+                    )
                 )
             }
         }
@@ -510,17 +512,19 @@ internal fun BrickModeScreen(
                     item {
                         BrickModeSectionHeader(
                             title = stringResource(
-                                if (state.mode == UsageRestrictionMode.BRICK) {
+                                if (state.mode == UsageRestrictionMode.SLEEP) {
+                                    R.string.sleep_mode_choose_apps
+                                } else if (state.mode == UsageRestrictionMode.BRICK) {
                                     R.string.brick_mode_choose_apps_limited
                                 } else {
                                     R.string.brick_mode_choose_apps
                                 }
                             ),
-                            subtitle = if (state.mode == UsageRestrictionMode.BRICK) {
+                            subtitle = if (maxAllowedApps != null) {
                                 stringResource(
                                     R.string.brick_mode_limit_count,
                                     selectedCount,
-                                    UsageRestrictionPolicy.MAX_BRICK_ALLOWED_APPS
+                                    maxAllowedApps
                                 )
                             } else {
                                 null
@@ -532,7 +536,7 @@ internal fun BrickModeScreen(
                             app = app,
                             mode = state.mode,
                             selectionEnabled = !brickSelectionLocked &&
-                                (app.allowed || !brickLimitReached),
+                                (app.allowed || !appLimitReached),
                             onAllowedChange = { allowed ->
                                 viewModel.setPackageAllowed(app.packageName, allowed)
                             }
@@ -599,7 +603,7 @@ private fun UsageRestrictionModeSelector(
             color = TimeHudColors.textPrimary,
             fontWeight = FontWeight.SemiBold
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             UsageRestrictionMode.entries.forEach { mode ->
                 FilterChip(
                     selected = selectedMode == mode,
@@ -614,6 +618,7 @@ private fun UsageRestrictionModeSelector(
                 when (selectedMode) {
                     UsageRestrictionMode.RESTRICTED -> R.string.restricted_mode_description
                     UsageRestrictionMode.BRICK -> R.string.strict_brick_mode_description
+                    UsageRestrictionMode.SLEEP -> R.string.sleep_mode_description
                 }
             ),
             color = TimeHudColors.textSecondary,
@@ -645,11 +650,12 @@ private fun BrickModeStatusCard(
         R.string.brick_mode_switch_description,
         configuredModeName
     )
-    val selectedCountText = if (configuredMode == UsageRestrictionMode.BRICK) {
+    val maxAllowedApps = UsageRestrictionPolicy.maxAllowedApps(configuredMode)
+    val selectedCountText = if (maxAllowedApps != null) {
         stringResource(
             R.string.brick_mode_limit_count,
             selectedCount,
-            UsageRestrictionPolicy.MAX_BRICK_ALLOWED_APPS
+            maxAllowedApps
         )
     } else {
         pluralStringResource(
@@ -949,12 +955,15 @@ private fun AddBrickModeScheduleDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.brick_mode_schedule_dialog_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
                     text = stringResource(R.string.brick_mode_schedule_mode_label),
                     fontWeight = FontWeight.SemiBold
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     UsageRestrictionMode.entries.forEach { mode ->
                         FilterChip(
                             selected = selectedMode == mode,
@@ -1173,6 +1182,7 @@ private fun usageRestrictionModeLabel(mode: UsageRestrictionMode): String = stri
     when (mode) {
         UsageRestrictionMode.RESTRICTED -> R.string.restricted_mode_name
         UsageRestrictionMode.BRICK -> R.string.strict_brick_mode_name
+        UsageRestrictionMode.SLEEP -> R.string.sleep_mode_name
     }
 )
 
