@@ -165,7 +165,7 @@ class AppBlockingTest {
             supportedSurfacesFor(FACEBOOK_PACKAGE)
         )
         assertEquals(
-            listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES),
+            listOf(AppSurface.SPOTLIGHT, AppSurface.DISCOVER, AppSurface.STORIES),
             supportedSurfacesFor(SNAPCHAT_PACKAGE)
         )
         assertEquals(
@@ -192,6 +192,7 @@ class AppBlockingTest {
             Triple(FACEBOOK_PACKAGE, signals(viewId = "reels_feed"), AppSurface.REELS),
             Triple(FACEBOOK_PACKAGE, signals(selected = "marketplace"), AppSurface.MARKETPLACE),
             Triple(SNAPCHAT_PACKAGE, signals(selected = "spotlight"), AppSurface.SPOTLIGHT),
+            Triple(SNAPCHAT_PACKAGE, signals(viewId = "discover_viewer"), AppSurface.DISCOVER),
             Triple(SNAPCHAT_PACKAGE, signals(viewId = "stories_feed"), AppSurface.STORIES),
             Triple(X_PACKAGE, signals(viewId = "explore_timeline"), AppSurface.EXPLORE)
         )
@@ -203,6 +204,134 @@ class AppBlockingTest {
                 AppSurfaceClassifier.classify(packageName, signals)
             )
         }
+    }
+
+    @Test
+    fun snapchat_section_rules_block_independently_and_leave_chat_and_camera_available() {
+        val sections = listOf(
+            Triple("spotlight", AppSurface.SPOTLIGHT, BlockReason.SPOTLIGHT),
+            Triple("discover", AppSurface.DISCOVER, BlockReason.DISCOVER),
+            Triple("stories", AppSurface.STORIES, BlockReason.STORIES)
+        )
+        sections.forEach { (_, blockedSurface, reason) ->
+            val rule = rule(SNAPCHAT_PACKAGE, blockedSurfaces = setOf(blockedSurface))
+            sections.forEach { (label, surface, _) ->
+                val detected = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE,
+                    if (surface == AppSurface.DISCOVER) signals(viewId = "discover_viewer")
+                    else signals(selected = label)
+                )
+                assertEquals(surface, detected)
+                assertEquals(
+                    if (surface == blockedSurface) BlockDecision.Block(reason) else BlockDecision.Allow,
+                    AppBlockDecisionEngine.decide(rule, 0L, detected)
+                )
+            }
+            listOf("chat", "camera").forEach { label ->
+                val detected = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(selected = label))
+                assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(rule, 0L, detected))
+            }
+        }
+    }
+
+    @Test
+    fun snapchat_discover_navigation_does_not_block_the_browsing_page() {
+        assertEquals(
+            AppSurface.OTHER,
+            AppSurfaceClassifier.classify(
+                SNAPCHAT_PACKAGE, signals(selected = "discover", viewId = "discover_feed")
+            )
+        )
+        assertEquals(
+            AppSurface.SPOTLIGHT,
+            AppSurfaceClassifier.classify(
+                SNAPCHAT_PACKAGE, signals(selected = "spotlight", viewId = "discover_feed")
+            )
+        )
+    }
+
+    @Test
+    fun snapchat_unselected_navigation_and_plain_labels_do_not_block_chat() {
+        assertEquals(
+            AppSurface.OTHER,
+            AppSurfaceClassifier.classify(
+                SNAPCHAT_PACKAGE,
+                AppUiSignals(
+                    labels = setOf("spotlight", "discover", "stories"),
+                    viewIds = setOf("spotlight_tab", "discover_tab", "stories_tab")
+                )
+            )
+        )
+    }
+
+    @Test
+    fun snapchat_discover_and_spotlight_content_containers_are_recognized() {
+        listOf("discover_viewer", "discover_player").forEach { id ->
+            assertEquals(
+                AppSurface.DISCOVER,
+                AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(viewId = id))
+            )
+        }
+        assertEquals(
+            AppSurface.SPOTLIGHT,
+            AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(viewId = "spotlight_feed"))
+        )
+    }
+
+    @Test
+    fun snapchat_discover_grid_remains_available_until_a_post_opens() {
+        listOf("discover_feed", "discover_page", "df_large_story").forEach { id ->
+            val surface = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(viewId = id))
+            assertEquals(AppSurface.OTHER, surface)
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+                rule(SNAPCHAT_PACKAGE, blockedSurfaces = setOf(AppSurface.DISCOVER)), 0L, surface
+            ))
+        }
+        val viewer = AppUiSignals(viewIds = setOf("opera_viewer", "context_chrome_header/chrome_subscribe_button", "discover_feed"))
+        val opened = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, viewer)
+        assertEquals(AppSurface.DISCOVER, opened)
+        assertEquals(BlockDecision.Block(BlockReason.DISCOVER), AppBlockDecisionEngine.decide(
+            rule(SNAPCHAT_PACKAGE, blockedSurfaces = setOf(AppSurface.DISCOVER)), 0L, opened
+        ))
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(viewId = "opera_viewer")))
+    }
+
+    @Test
+    fun snapchat_friends_navigation_and_reply_controls_override_shared_publisher_controls() {
+        val publicViewer = AppUiSignals(viewIds = setOf("opera_viewer", "context_chrome_header/chrome_subscribe_button"))
+        val variants = listOf(
+            publicViewer.copy(snapchatFriendStoryNavigation = true),
+            publicViewer.copy(editableLabels = setOf("send a chat")),
+            publicViewer.copy(viewIds = publicViewer.viewIds + "story_reply")
+        )
+        variants.forEach { signals ->
+            val surface = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals)
+            assertEquals(AppSurface.STORIES, surface)
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+                rule(SNAPCHAT_PACKAGE, blockedSurfaces = setOf(AppSurface.DISCOVER)), 0L, surface
+            ))
+        }
+    }
+
+    @Test
+    fun snapchat_friends_marker_is_scoped_to_navigation_subtitle() {
+        assertTrue(isSnapchatFriendStoryNavigation("chrome_subtitle", "Example from Quick Add"))
+        assertTrue(isSnapchatFriendStoryNavigation("$SNAPCHAT_PACKAGE:id/chrome_subtitle", "Example FROM QUICK ADD"))
+        assertFalse(isSnapchatFriendStoryNavigation("post_caption", "Example from Quick Add"))
+        assertFalse(isSnapchatFriendStoryNavigation("chrome_subtitle", "Example"))
+        assertFalse(isSnapchatFriendStoryNavigation("chrome_subtitle", null))
+    }
+
+    @Test
+    fun old_snapchat_stories_rules_retain_discover_coverage_without_changing_spotlight() {
+        assertEquals(
+            setOf(AppSurface.STORIES, AppSurface.DISCOVER),
+            migrateSnapchatDiscoverSurfaces(setOf(AppSurface.STORIES))
+        )
+        assertEquals(
+            setOf(AppSurface.SPOTLIGHT),
+            migrateSnapchatDiscoverSurfaces(setOf(AppSurface.SPOTLIGHT))
+        )
+        assertEquals(emptySet<AppSurface>(), migrateSnapchatDiscoverSurfaces(emptySet()))
     }
 
     @Test

@@ -124,6 +124,8 @@
     <string name="app_blocking_block_explore">Block Explore</string>
     <string name="app_blocking_block_marketplace">Block Marketplace</string>
     <string name="app_blocking_block_spotlight">Block Spotlight</string>
+    <string name="app_blocking_block_discover">Block Discover</string>
+    <string name="app_blocking_discover_note">Blocks opened Discover posts. The browsing page and Friends stories remain available.</string>
     <string name="app_blocking_allow_messages">Allow open Instagram chats</string>
     <string name="app_blocking_surface_note">Section detection uses English navigation labels, window titles, and view identifiers. App updates can temporarily affect recognition.</string>
     <string name="app_blocking_remove_rule">Remove this rule</string>
@@ -139,6 +141,7 @@
     <string name="app_blocking_summary_explore">Explore blocked</string>
     <string name="app_blocking_summary_marketplace">Marketplace blocked</string>
     <string name="app_blocking_summary_spotlight">Spotlight blocked</string>
+    <string name="app_blocking_summary_discover">Discover blocked</string>
     <string name="app_blocking_summary_messages">Open chats allowed</string>
     <string name="blocking_overlay_content_description">TimeHUD check-in covering content blocked by an app-control rule</string>
     <string name="app_limit_grace_title">Need a little more time?</string>

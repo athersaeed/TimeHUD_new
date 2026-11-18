@@ -571,7 +571,15 @@ internal object AppWindowInspector {
         val focusedLabels = mutableSetOf<String>()
         val editableLabels = mutableSetOf<String>()
         val viewIds = mutableSetOf<String>()
+        var snapchatFriendStoryNavigation = false
+        val windowBounds = Rect().also(root::getBoundsInScreen)
         traverse(root) { node ->
+            // Snapchat retains closed viewers and Friends navigation in the tree.
+            // Only visible, on-screen nodes may describe its current surface.
+            if (packageName == SNAPCHAT_PACKAGE) {
+                val nodeBounds = Rect().also(node::getBoundsInScreen)
+                if (!node.isVisibleToUser || !Rect.intersects(windowBounds, nodeBounds)) return@traverse
+            }
             val nodeLabels = buildList<CharSequence> {
                 node.contentDescription?.let(::add)
                 node.text?.let(::add)
@@ -581,6 +589,13 @@ internal object AppWindowInspector {
             }
                 .map { it.toString().normalizeSignal() }
                 .filter { it.isNotEmpty() }
+            if (packageName == SNAPCHAT_PACKAGE && (
+                isSnapchatFriendStoryNavigation(node.viewIdResourceName, node.text) ||
+                    isSnapchatFriendStoryNavigation(node.viewIdResourceName, node.contentDescription)
+                )
+            ) {
+                snapchatFriendStoryNavigation = true
+            }
             labels += nodeLabels
             if (node.isSelected) selectedLabels += nodeLabels
             // X's Compose tabs expose selection on an unlabeled parent and the
@@ -601,7 +616,8 @@ internal object AppWindowInspector {
             focusedLabels = focusedLabels,
             editableLabels = editableLabels,
             viewIds = viewIds,
-            windowTitle = windowTitle.orEmpty().normalizeSignal()
+            windowTitle = windowTitle.orEmpty().normalizeSignal(),
+            snapchatFriendStoryNavigation = snapchatFriendStoryNavigation
         )
     }
 

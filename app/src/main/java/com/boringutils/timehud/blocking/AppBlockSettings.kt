@@ -14,6 +14,7 @@ internal object AppBlockSettings {
     // Read once for migration from the first Instagram-only implementation.
     private const val REELS_PREFIX = "block_reels:"
     private const val STORIES_PREFIX = "block_stories:"
+    private const val SNAPCHAT_DISCOVER_SEPARATED_KEY = "snapchat_discover_separated"
     private const val MESSAGES_PREFIX = "allow_messages:"
 
     fun loadRules(context: Context): List<AppBlockRule> {
@@ -38,11 +39,25 @@ internal object AppBlockSettings {
                         }
                     }
                 }
+                // Older Snapchat Stories rules also covered Discover. Migrate once,
+                // then allow either switch to be saved independently.
+                val migratedSurfaces = if (packageName == SNAPCHAT_PACKAGE &&
+                    !preferences.getBoolean(SNAPCHAT_DISCOVER_SEPARATED_KEY, false)
+                ) {
+                    migrateSnapchatDiscoverSurfaces(blockedSurfaces).also { surfaces ->
+                        preferences.edit {
+                            putStringSet(surfacesKey, surfaces.mapTo(mutableSetOf()) { it.name })
+                            putBoolean(SNAPCHAT_DISCOVER_SEPARATED_KEY, true)
+                        }
+                    }
+                } else {
+                    blockedSurfaces
+                }
                 AppBlockRule(
                     packageName = packageName,
                     dailyLimitMinutes = preferences.getInt(LIMIT_PREFIX + packageName, 0)
                         .takeIf { it > 0 },
-                    blockedSurfaces = blockedSurfaces,
+                    blockedSurfaces = migratedSurfaces,
                     allowMessages = preferences.getBoolean(MESSAGES_PREFIX + packageName, true)
                 )
             }
@@ -75,6 +90,9 @@ internal object AppBlockSettings {
                 rule.blockedSurfaces.mapTo(mutableSetOf()) { it.name }
             )
             putBoolean(MESSAGES_PREFIX + rule.packageName, rule.allowMessages)
+            if (rule.packageName == SNAPCHAT_PACKAGE) {
+                putBoolean(SNAPCHAT_DISCOVER_SEPARATED_KEY, true)
+            }
             remove(REELS_PREFIX + rule.packageName)
             remove(STORIES_PREFIX + rule.packageName)
         }

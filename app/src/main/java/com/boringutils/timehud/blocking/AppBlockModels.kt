@@ -30,6 +30,7 @@ internal enum class AppSurface {
     EXPLORE,
     MARKETPLACE,
     SPOTLIGHT,
+    DISCOVER,
     OTHER,
     UNKNOWN
 }
@@ -51,10 +52,13 @@ internal fun supportedSurfacesFor(packageName: String): List<AppSurface> = when 
         AppSurface.REELS,
         AppSurface.MARKETPLACE
     )
-    SNAPCHAT_PACKAGE -> listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES)
+    SNAPCHAT_PACKAGE -> listOf(AppSurface.SPOTLIGHT, AppSurface.DISCOVER, AppSurface.STORIES)
     X_PACKAGE -> listOf(AppSurface.EXPLORE, AppSurface.VIDEO_FEED)
     else -> emptyList()
 }
+
+internal fun migrateSnapchatDiscoverSurfaces(surfaces: Set<AppSurface>): Set<AppSurface> =
+    if (AppSurface.STORIES in surfaces) surfaces + AppSurface.DISCOVER else surfaces
 
 internal enum class BlockReason {
     BRICK_MODE,
@@ -69,7 +73,8 @@ internal enum class BlockReason {
     STORIES,
     EXPLORE,
     MARKETPLACE,
-    SPOTLIGHT
+    SPOTLIGHT,
+    DISCOVER
 }
 
 internal sealed interface BlockDecision {
@@ -117,6 +122,7 @@ internal object AppBlockDecisionEngine {
         AppSurface.EXPLORE -> BlockReason.EXPLORE
         AppSurface.MARKETPLACE -> BlockReason.MARKETPLACE
         AppSurface.SPOTLIGHT -> BlockReason.SPOTLIGHT
+        AppSurface.DISCOVER -> BlockReason.DISCOVER
         AppSurface.MESSAGE_INBOX,
         AppSurface.MESSAGE_THREAD,
         AppSurface.OTHER,
@@ -131,6 +137,7 @@ internal data class AppUiSignals(
     val editableLabels: Set<String> = emptySet(),
     val viewIds: Set<String> = emptySet(),
     val windowTitle: String = "",
+    val snapchatFriendStoryNavigation: Boolean = false,
     val isCompactWindow: Boolean = false
 ) {
     fun hasLabel(vararg candidates: String): Boolean =
@@ -150,6 +157,12 @@ internal data class AppUiSignals(
 
     fun titleContains(vararg fragments: String): Boolean =
         fragments.any { it in windowTitle }
+}
+
+internal fun isSnapchatFriendStoryNavigation(viewId: String?, text: CharSequence?): Boolean {
+    if (viewId != "chrome_subtitle" && viewId != "$SNAPCHAT_PACKAGE:id/chrome_subtitle") return false
+    // Read only the fixed navigation marker; never retain the surrounding identity.
+    return text?.toString()?.contains("from quick add", ignoreCase = true) == true
 }
 
 internal object AppSurfaceClassifier {
@@ -220,9 +233,23 @@ internal object AppSurfaceClassifier {
 
     private fun classifySnapchat(signals: AppUiSignals): AppSurface = when {
         signals.hasSelectedLabel("spotlight") ||
-            signals.hasViewId("spotlight_tab", "spotlight_feed") -> AppSurface.SPOTLIGHT
-        signals.hasSelectedLabel("stories", "discover") ||
-            signals.hasViewId("stories_tab", "stories_feed", "discover_feed") -> AppSurface.STORIES
+            signals.hasViewId("spotlight_feed", "spotlight_player", "spotlight_viewer", "spotlight_container") -> {
+            AppSurface.SPOTLIGHT
+        }
+        // Friends-row recommendations and Discover share the public-story viewer.
+        // Only navigation/composer controls identify the Friends variant.
+        signals.hasViewId("opera_viewer") && (
+            signals.snapchatFriendStoryNavigation ||
+                signals.hasViewId("story_reply", "reply_to_story") ||
+                signals.hasEditableLabel("send a chat", "reply", "send chat")
+            ) -> AppSurface.STORIES
+        signals.hasViewId("discover_viewer", "discover_player") ||
+            (signals.hasViewId("opera_viewer") && signals.hasViewId("chrome_subscribe_button")) -> {
+            AppSurface.DISCOVER
+        }
+        signals.hasSelectedLabel("stories") ||
+            signals.hasViewId("stories_feed", "story_viewer", "stories_viewer") -> AppSurface.STORIES
+        // The Discover tab/grid is deliberately available until a post opens.
         else -> AppSurface.OTHER
     }
 

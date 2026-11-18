@@ -537,6 +537,13 @@ internal fun AppRuleDialog(
                         }
                     )
                 }
+                if (AppSurface.DISCOVER in surfaceOptions) {
+                    Text(
+                        text = stringResource(R.string.app_blocking_discover_note),
+                        color = TimeHudColors.textSecondary,
+                        fontSize = 12.sp
+                    )
+                }
                 if (AppSurface.VIDEO_FEED in surfaceOptions) {
                     Text(
                         text = stringResource(R.string.app_blocking_video_feed_note),
@@ -651,6 +658,7 @@ private fun surfaceOptionLabel(surface: AppSurface): String = stringResource(
         AppSurface.EXPLORE -> R.string.app_blocking_block_explore
         AppSurface.MARKETPLACE -> R.string.app_blocking_block_marketplace
         AppSurface.SPOTLIGHT -> R.string.app_blocking_block_spotlight
+        AppSurface.DISCOVER -> R.string.app_blocking_block_discover
         AppSurface.MESSAGE_INBOX,
         AppSurface.MESSAGE_THREAD,
         AppSurface.OTHER,
@@ -671,6 +679,7 @@ private fun surfaceSummaryLabel(surface: AppSurface): String = stringResource(
         AppSurface.EXPLORE -> R.string.app_blocking_summary_explore
         AppSurface.MARKETPLACE -> R.string.app_blocking_summary_marketplace
         AppSurface.SPOTLIGHT -> R.string.app_blocking_summary_spotlight
+        AppSurface.DISCOVER -> R.string.app_blocking_summary_discover
         AppSurface.MESSAGE_INBOX,
         AppSurface.MESSAGE_THREAD,
         AppSurface.OTHER,
