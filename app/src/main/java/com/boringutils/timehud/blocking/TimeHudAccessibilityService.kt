@@ -63,7 +63,11 @@ class TimeHudAccessibilityService : AccessibilityService() {
     private var focusStartedElapsedMs = 0L
     private var focusStartedWallMs = 0L
 
-    private val evaluateRunnable = Runnable { evaluateWindows() }
+    private val evaluationSchedule = WindowEvaluationSchedule()
+    private val evaluateRunnable = Runnable {
+        evaluationSchedule.clear()
+        evaluateWindows()
+    }
     private var screenReceiverRegistered = false
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -139,6 +143,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
 
     private fun scheduleEvaluation(delayMs: Long = WINDOW_DEBOUNCE_MS) {
         if (destroyed.get()) return
+        if (!evaluationSchedule.request(SystemClock.uptimeMillis(), delayMs)) return
         mainHandler.removeCallbacks(evaluateRunnable)
         mainHandler.postDelayed(evaluateRunnable, delayMs)
     }
@@ -168,6 +173,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
 
     private fun suspendBlockingForScreen() {
         mainHandler.removeCallbacks(evaluateRunnable)
+        evaluationSchedule.clear()
         AccessibilityForegroundAppStateStore.updatePackage(null)
         updateFocusedPackage(null)
         appWindowMemory.clear()
@@ -186,6 +192,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         val graceState = AppLimitGraceStore.load(this, nowWallMs)
         val graceStatus = AppLimitGracePolicy.status(graceState, nowWallMs)
         val rules = AppBlockSettings.loadRules(this).associateBy { it.packageName }
+        val browserTestEnabled = rules[INSTAGRAM_PACKAGE]?.browserInstagramTest == true
         val brickModeConfig = BrickModeSettings.load(this, nowWallMs)
         val brickModeSchedules = BrickModeSettings.loadSchedules(this)
         val scheduledRestrictionMode = BrickModeSchedulePolicy.activeMode(
@@ -241,15 +248,18 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 scheduledMode = scheduledRestrictionMode,
                 nowMs = nowWallMs
             )
-            if (brickModeDecision == BlockDecision.Allow && rule == null) {
+            val inspectBrowser = browserTestEnabled && packageName in INSTAGRAM_TEST_BROWSERS
+            if (brickModeDecision == BlockDecision.Allow && rule == null && !inspectBrowser) {
                 return@mapNotNull null
             }
+            var instagramFeedBounds: ScreenRect? = null
             val surface = if (rule != null && brickModeDecision == BlockDecision.Allow) {
                 val signals = AppWindowInspector.inspect(
                     root = root,
                     windowTitle = runCatching { window.title?.toString() }.getOrNull(),
                     packageName = packageName
                 ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics))
+                instagramFeedBounds = signals.instagramFeedBounds
                 if (signals.labels.isEmpty() && signals.viewIds.isEmpty()) {
                     hasUnreadableAppWindow = true
                     AppSurface.UNKNOWN
@@ -259,12 +269,20 @@ class TimeHudAccessibilityService : AccessibilityService() {
             } else {
                 AppSurface.UNKNOWN
             }
+            val browser = if (inspectBrowser && brickModeDecision == BlockDecision.Allow) {
+                BrowserInstagramInspector.inspect(root, packageName)
+            } else null
             ObservedAppWindow(
                 geometry = geometry,
                 packageName = packageName,
                 surface = surface,
                 rule = rule,
-                brickModeDecision = brickModeDecision
+                brickModeDecision = brickModeDecision,
+                browserDecision = browser?.let {
+                    BrowserInstagramClassifier.decision(BrowserInstagramClassifier.classify(it.signals))
+                } ?: BlockDecision.Allow,
+                browserBounds = browser?.contentBounds,
+                instagramFeedBounds = instagramFeedBounds
             )
         }
 
@@ -292,7 +310,8 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 geometry = geometries.firstOrNull { it.id == snapshot.windowId } ?: observed.geometry,
                 surface = snapshot.surface,
                 rule = rule,
-                brickModeDecision = restriction
+                brickModeDecision = restriction,
+                browserDecision = if (browserTestEnabled) observed.browserDecision else BlockDecision.Allow
             )
         }
         rememberedAppWindows = appWindows
@@ -323,12 +342,22 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 focusedUsageMs = focusedUsageMs,
                 surface = observed.surface
             )
-            val decision = AppLimitGracePolicy.applyTo(appControlDecision, graceStatus)
+            val combinedDecision = if (appControlDecision == BlockDecision.Allow) {
+                observed.browserDecision
+            } else appControlDecision
+            val decision = AppLimitGracePolicy.applyTo(combinedDecision, graceStatus)
             when (decision) {
                 BlockDecision.Allow -> null
                 is BlockDecision.Block -> BlockTarget(
                     windowId = observed.geometry.id,
-                    bounds = observed.geometry.bounds,
+                    bounds = if (appControlDecision == BlockDecision.Allow &&
+                        observed.browserDecision is BlockDecision.Block
+                    ) observed.browserBounds ?: return@mapNotNull null
+                    else if (decision.reason == BlockReason.HOME_FEED &&
+                        observed.packageName == INSTAGRAM_PACKAGE
+                    ) observed.instagramFeedBounds?.intersection(observed.geometry.bounds)
+                        ?: observed.geometry.bounds
+                    else observed.geometry.bounds,
                     layer = observed.geometry.layer,
                     reason = decision.reason
                 )
@@ -601,7 +630,10 @@ private data class ObservedAppWindow(
     val packageName: String,
     val surface: AppSurface,
     val rule: AppBlockRule?,
-    val brickModeDecision: BlockDecision
+    val brickModeDecision: BlockDecision,
+    val browserDecision: BlockDecision = BlockDecision.Allow,
+    val browserBounds: ScreenRect? = null,
+    val instagramFeedBounds: ScreenRect? = null
 )
 
 private data class BlockTarget(
@@ -625,13 +657,23 @@ internal object AppWindowInspector {
         val editableLabels = mutableSetOf<String>()
         val viewIds = mutableSetOf<String>()
         var snapchatFriendStoryNavigation = false
+        var instagramNavigationTop: Int? = null
         val windowBounds = Rect().also(root::getBoundsInScreen)
         traverse(root) { node ->
-            // Snapchat retains closed viewers and Friends navigation in the tree.
+            // Instagram and Snapchat retain closed viewers/navigation in the tree.
             // Only visible, on-screen nodes may describe its current surface.
-            if (packageName == SNAPCHAT_PACKAGE) {
+            if (packageName == SNAPCHAT_PACKAGE || packageName == INSTAGRAM_PACKAGE) {
                 val nodeBounds = Rect().also(node::getBoundsInScreen)
                 if (!node.isVisibleToUser || !Rect.intersects(windowBounds, nodeBounds)) return@traverse
+            }
+            if (packageName == INSTAGRAM_PACKAGE) {
+                if (node.viewIdResourceName == "$INSTAGRAM_PACKAGE:id/tab_bar") {
+                    val bounds = Rect().also(node::getBoundsInScreen)
+                    if (bounds.top > windowBounds.top && bounds.top < windowBounds.bottom) {
+                        instagramNavigationTop = bounds.top
+                    }
+                }
+                instagramSelectedNavigation(node)?.let(selectedLabels::add)
             }
             val nodeLabels = buildList<CharSequence> {
                 node.contentDescription?.let(::add)
@@ -670,8 +712,30 @@ internal object AppWindowInspector {
             editableLabels = editableLabels,
             viewIds = viewIds,
             windowTitle = windowTitle.orEmpty().normalizeSignal(),
-            snapchatFriendStoryNavigation = snapchatFriendStoryNavigation
+            snapchatFriendStoryNavigation = snapchatFriendStoryNavigation,
+            instagramFeedBounds = instagramNavigationTop?.let { bottom ->
+                ScreenRect(windowBounds.left, windowBounds.top, windowBounds.right, bottom)
+            }
         )
+    }
+
+    private fun instagramSelectedNavigation(node: AccessibilityNodeInfo): String? {
+        if (!node.isSelected || node.isEditable) return null
+        val id = node.viewIdResourceName
+        // Only fixed navigation IDs qualify; selected text in a post cannot select Home.
+        fun label(viewId: String?): String? = when (viewId) {
+            "$INSTAGRAM_PACKAGE:id/feed_tab" -> "home"
+            "$INSTAGRAM_PACKAGE:id/direct_tab" -> "messages"
+            "$INSTAGRAM_PACKAGE:id/clips_tab" -> "reels"
+            "$INSTAGRAM_PACKAGE:id/search_tab" -> "explore"
+            else -> null
+        }
+        label(id)?.let { return it }
+        if (id != "$INSTAGRAM_PACKAGE:id/tab_icon") return null
+        val parent = node.parent ?: return null
+        val bounds = Rect().also(parent::getBoundsInScreen)
+        if (!parent.isVisibleToUser || bounds.isEmpty) return null
+        return label(parent.viewIdResourceName)
     }
 
     private fun hasSelectedTabAncestor(node: AccessibilityNodeInfo): Boolean {

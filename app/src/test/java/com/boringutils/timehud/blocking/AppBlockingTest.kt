@@ -7,6 +7,51 @@ import org.junit.Test
 
 class AppBlockingTest {
     @Test
+    fun instagram_home_requires_selected_navigation_and_visible_feed_content() {
+        listOf(setOf("main_feed_action_bar"), setOf("reels_tray_container"),
+            setOf("sticky_header_list", "row_feed_button_like")).forEach { ids ->
+            assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+                AppUiSignals(selectedLabels = setOf("home"), viewIds = ids)))
+            assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+                AppUiSignals(labels = setOf("home"), viewIds = ids + "feed_tab")))
+        }
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(selectedLabels = setOf("home"), viewIds = setOf("profile_header"))))
+    }
+
+    @Test
+    fun instagram_active_sections_beat_retained_home_feed_markers() {
+        val retained = setOf("main_feed_action_bar", "reels_tray_container", "feed_tab")
+        mapOf("messages" to AppSurface.MESSAGE_INBOX, "reels" to AppSurface.REELS,
+            "explore" to AppSurface.EXPLORE).forEach { (selected, expected) ->
+            assertEquals(expected, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+                AppUiSignals(selectedLabels = setOf(selected), viewIds = retained)))
+        }
+        assertEquals(AppSurface.STORIES, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(selectedLabels = setOf("home"),
+                viewIds = retained + "reel_viewer_root")))
+        assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(selectedLabels = setOf("home"),
+                viewIds = retained + setOf("direct_inbox", "clips_viewer", "explore_grid"))))
+    }
+
+    @Test
+    fun home_feed_rule_blocks_only_home_and_preserves_message_exemption() {
+        val homeRule = rule(INSTAGRAM_PACKAGE, blockedSurfaces = setOf(AppSurface.HOME_FEED))
+        assertTrue(homeRule.isConfigured)
+        assertEquals(BlockDecision.Block(BlockReason.HOME_FEED),
+            AppBlockDecisionEngine.decide(homeRule, 0L, AppSurface.HOME_FEED))
+        listOf(AppSurface.MESSAGE_INBOX, AppSurface.MESSAGE_THREAD, AppSurface.REELS,
+            AppSurface.STORIES, AppSurface.EXPLORE, AppSurface.OTHER).forEach { surface ->
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(homeRule, 0L, surface))
+        }
+        assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+            homeRule.copy(blockedSurfaces = emptySet()), 0L, AppSurface.HOME_FEED))
+        assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+            homeRule.copy(dailyLimitMinutes = 1), 120_000L, AppSurface.MESSAGE_INBOX))
+    }
+
+    @Test
     fun messages_exemption_wins_after_daily_limit() {
         val decision = AppBlockDecisionEngine.decide(
             rule = rule(
@@ -157,7 +202,7 @@ class AppBlockingTest {
             supportedSurfacesFor(YOUTUBE_PACKAGE)
         )
         assertEquals(
-            listOf(AppSurface.STORIES, AppSurface.REELS, AppSurface.EXPLORE),
+            listOf(AppSurface.HOME_FEED, AppSurface.STORIES, AppSurface.REELS, AppSurface.EXPLORE),
             supportedSurfacesFor(INSTAGRAM_PACKAGE)
         )
         assertEquals(
@@ -425,7 +470,7 @@ class AppBlockingTest {
     }
 
     @Test
-    fun instagram_inbox_is_not_treated_as_an_open_chat() {
+    fun instagram_inbox_remains_available_with_section_blocking() {
         val surface = AppSurfaceClassifier.classify(
             INSTAGRAM_PACKAGE,
             signals(selected = "messages", viewId = "direct_inbox")
@@ -433,7 +478,7 @@ class AppBlockingTest {
 
         assertEquals(AppSurface.MESSAGE_INBOX, surface)
         assertEquals(
-            BlockDecision.Block(BlockReason.MESSAGE_INBOX),
+            BlockDecision.Allow,
             AppBlockDecisionEngine.decide(
                 rule = rule(
                     packageName = INSTAGRAM_PACKAGE,
@@ -443,6 +488,41 @@ class AppBlockingTest {
                 surface = surface
             )
         )
+    }
+
+    @Test
+    fun instagram_inbox_exemption_applies_after_daily_limit_and_can_be_disabled() {
+        val rule = rule(INSTAGRAM_PACKAGE, dailyLimitMinutes = 10)
+        assertEquals(BlockDecision.Allow,
+            AppBlockDecisionEngine.decide(rule, 11 * 60_000L, AppSurface.MESSAGE_INBOX))
+        assertEquals(BlockDecision.Block(BlockReason.DAILY_LIMIT),
+            AppBlockDecisionEngine.decide(rule.copy(allowMessages = false),
+                11 * 60_000L, AppSurface.MESSAGE_INBOX))
+    }
+
+    @Test
+    fun instagram_story_reply_composer_does_not_exempt_the_story() {
+        listOf("story_viewer", "stories_viewer", "com.instagram.android:id/reel_viewer_root")
+            .forEach { viewerId ->
+                val surface = AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE, AppUiSignals(
+                    viewIds = setOf(viewerId, "message_composer_container", "direct_inbox"),
+                    selectedLabels = setOf("messages"),
+                    editableLabels = setOf("send message")
+                ))
+                assertEquals(AppSurface.STORIES, surface)
+                assertEquals(BlockDecision.Block(BlockReason.STORIES),
+                    AppBlockDecisionEngine.decide(rule(INSTAGRAM_PACKAGE,
+                        blockedSurfaces = setOf(AppSurface.STORIES)), 0L, surface))
+            }
+    }
+
+    @Test
+    fun instagram_story_tray_does_not_block_home_or_inbox() {
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(viewIds = setOf("reels_tray_container", "reel_empty_badge", "search_tab", "explore_tab"))))
+        assertEquals(AppSurface.MESSAGE_INBOX, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(viewIds = setOf("direct_inbox_action_bar",
+                "inbox_refreshable_thread_list_recyclerview", "search_tab", "explore_tab"))))
     }
 
     @Test

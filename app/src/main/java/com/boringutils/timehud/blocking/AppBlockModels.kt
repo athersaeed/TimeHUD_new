@@ -11,10 +11,11 @@ internal data class AppBlockRule(
     val packageName: String,
     val dailyLimitMinutes: Int? = null,
     val blockedSurfaces: Set<AppSurface> = emptySet(),
-    val allowMessages: Boolean = true
+    val allowMessages: Boolean = true,
+    val browserInstagramTest: Boolean = false
 ) {
     val isConfigured: Boolean
-        get() = dailyLimitMinutes != null || blockedSurfaces.isNotEmpty()
+        get() = dailyLimitMinutes != null || blockedSurfaces.isNotEmpty() || browserInstagramTest
 }
 
 internal enum class AppSurface {
@@ -23,6 +24,7 @@ internal enum class AppSurface {
     SHORTS,
     VIDEO_SEARCH,
     VIDEO_FEED,
+    HOME_FEED,
     PICTURE_IN_PICTURE,
     COMMENTS,
     REELS,
@@ -43,6 +45,7 @@ internal fun supportedSurfacesFor(packageName: String): List<AppSurface> = when 
         AppSurface.COMMENTS
     )
     INSTAGRAM_PACKAGE -> listOf(
+        AppSurface.HOME_FEED,
         AppSurface.STORIES,
         AppSurface.REELS,
         AppSurface.EXPLORE
@@ -67,6 +70,7 @@ internal enum class BlockReason {
     SHORTS,
     VIDEO_SEARCH,
     VIDEO_FEED,
+    HOME_FEED,
     PICTURE_IN_PICTURE,
     COMMENTS,
     REELS,
@@ -89,15 +93,12 @@ internal object AppBlockDecisionEngine {
         focusedUsageMs: Long,
         surface: AppSurface
     ): BlockDecision {
-        if (rule.allowMessages && surface == AppSurface.MESSAGE_THREAD) {
-            return BlockDecision.Allow
-        }
-        if (rule.packageName == INSTAGRAM_PACKAGE &&
-            rule.allowMessages &&
-            surface == AppSurface.MESSAGE_INBOX &&
-            rule.blockedSurfaces.isNotEmpty()
+        if (rule.allowMessages && (
+            surface == AppSurface.MESSAGE_THREAD ||
+                (rule.packageName == INSTAGRAM_PACKAGE && surface == AppSurface.MESSAGE_INBOX)
+            )
         ) {
-            return BlockDecision.Block(BlockReason.MESSAGE_INBOX)
+            return BlockDecision.Allow
         }
         if (surface in rule.blockedSurfaces) {
             return BlockDecision.Block(surface.blockReason())
@@ -115,6 +116,7 @@ internal object AppBlockDecisionEngine {
         AppSurface.SHORTS -> BlockReason.SHORTS
         AppSurface.VIDEO_SEARCH -> BlockReason.VIDEO_SEARCH
         AppSurface.VIDEO_FEED -> BlockReason.VIDEO_FEED
+        AppSurface.HOME_FEED -> BlockReason.HOME_FEED
         AppSurface.PICTURE_IN_PICTURE -> BlockReason.PICTURE_IN_PICTURE
         AppSurface.COMMENTS -> BlockReason.COMMENTS
         AppSurface.REELS -> BlockReason.REELS
@@ -138,7 +140,8 @@ internal data class AppUiSignals(
     val viewIds: Set<String> = emptySet(),
     val windowTitle: String = "",
     val snapchatFriendStoryNavigation: Boolean = false,
-    val isCompactWindow: Boolean = false
+    val isCompactWindow: Boolean = false,
+    val instagramFeedBounds: ScreenRect? = null
 ) {
     fun hasLabel(vararg candidates: String): Boolean =
         candidates.any { candidate -> labels.any { it == candidate || it.startsWith("$candidate ") } }
@@ -201,16 +204,25 @@ internal object AppSurfaceClassifier {
             "composer_input",
             "message_edit_text"
         ) || signals.hasEditableLabel("message", "write a message", "send message")
-        val messagesSelected = signals.hasSelectedLabel("messages", "direct", "inbox")
+        val messagesSelected = signals.hasSelectedLabel("message", "messages", "direct", "inbox")
 
         return when {
+            // Instagram calls its Stories viewer "reel_viewer" and includes a
+            // message composer for story replies. Identify it before Messages.
+            signals.hasViewId("story_viewer", "stories_viewer", "reel_viewer_root") ||
+                signals.hasLabel("story by") -> AppSurface.STORIES
             signals.hasSelectedLabel("reels", "reels tab") -> AppSurface.REELS
             signals.hasSelectedLabel("explore", "search and explore") -> AppSurface.EXPLORE
             messagesSelected && messageThreadOpen -> AppSurface.MESSAGE_THREAD
             messagesSelected -> AppSurface.MESSAGE_INBOX
-            signals.hasViewId("story_viewer") || signals.hasLabel("story by") -> AppSurface.STORIES
+            // The Home icon is selected even when its tab container is not.
+            // Require feed content as well: profiles/posts can retain Home navigation.
+            signals.hasSelectedLabel("home") && (
+                signals.hasViewId("main_feed_action_bar", "reels_tray_container") ||
+                    (signals.hasViewId("sticky_header_list") && signals.hasViewId("row_feed_"))
+                ) -> AppSurface.HOME_FEED
             signals.hasViewId("clips_viewer", "reels_viewer") -> AppSurface.REELS
-            signals.hasViewId("explore_grid", "explore_tab", "search_tab") -> AppSurface.EXPLORE
+            signals.hasViewId("explore_grid", "explore_feed") -> AppSurface.EXPLORE
             messageThreadOpen -> AppSurface.MESSAGE_THREAD
             signals.hasViewId("direct_inbox", "inbox_container", "thread_list") -> {
                 AppSurface.MESSAGE_INBOX

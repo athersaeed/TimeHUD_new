@@ -493,6 +493,9 @@ internal fun AppRuleDialog(
     var allowMessages by remember(app.packageName) {
         mutableStateOf(existingRule?.allowMessages ?: true)
     }
+    var browserInstagramTest by remember(app.packageName) {
+        mutableStateOf(existingRule?.browserInstagramTest ?: false)
+    }
     var showValidationError by remember(app.packageName) { mutableStateOf(false) }
     val parsedLimit = limitText.toIntOrNull()
     val validLimit = limitText.isBlank() || parsedLimit in 1..1440
@@ -553,6 +556,16 @@ internal fun AppRuleDialog(
                 }
                 if (app.packageName == INSTAGRAM_PACKAGE) {
                     RuleSwitch(
+                        label = stringResource(R.string.instagram_browser_test_label),
+                        checked = browserInstagramTest,
+                        onCheckedChange = { browserInstagramTest = it }
+                    )
+                    Text(
+                        stringResource(R.string.instagram_browser_test_note),
+                        color = TimeHudColors.textSecondary,
+                        fontSize = 12.sp
+                    )
+                    RuleSwitch(
                         label = stringResource(R.string.app_blocking_allow_messages),
                         checked = allowMessages,
                         onCheckedChange = { allowMessages = it }
@@ -583,7 +596,8 @@ internal fun AppRuleDialog(
                             packageName = app.packageName,
                             dailyLimitMinutes = parsedLimit,
                             blockedSurfaces = blockedSurfaces,
-                            allowMessages = app.packageName == INSTAGRAM_PACKAGE && allowMessages
+                            allowMessages = app.packageName == INSTAGRAM_PACKAGE && allowMessages,
+                            browserInstagramTest = app.packageName == INSTAGRAM_PACKAGE && browserInstagramTest
                         )
                     )
                 }
@@ -637,6 +651,7 @@ private fun BlockingMessageCard(
 @Composable
 private fun ruleSummary(rule: AppBlockRule): String = buildList {
     rule.dailyLimitMinutes?.let { add(stringResource(R.string.app_blocking_summary_limit, it)) }
+    if (rule.browserInstagramTest) add(stringResource(R.string.instagram_browser_test_summary))
     supportedSurfacesFor(rule.packageName)
         .filter(rule.blockedSurfaces::contains)
         .forEach { add(surfaceSummaryLabel(it)) }
@@ -650,6 +665,7 @@ private fun surfaceOptionLabel(surface: AppSurface): String = stringResource(
     when (surface) {
         AppSurface.SHORTS -> R.string.app_blocking_block_shorts
         AppSurface.VIDEO_SEARCH -> R.string.app_blocking_block_video_search
+        AppSurface.HOME_FEED -> R.string.app_blocking_block_home_feed
         AppSurface.VIDEO_FEED -> R.string.app_blocking_block_video_feed
         AppSurface.PICTURE_IN_PICTURE -> R.string.app_blocking_block_picture_in_picture
         AppSurface.COMMENTS -> R.string.app_blocking_block_comments
@@ -671,6 +687,7 @@ private fun surfaceSummaryLabel(surface: AppSurface): String = stringResource(
     when (surface) {
         AppSurface.SHORTS -> R.string.app_blocking_summary_shorts
         AppSurface.VIDEO_SEARCH -> R.string.app_blocking_summary_video_search
+        AppSurface.HOME_FEED -> R.string.app_blocking_summary_home_feed
         AppSurface.VIDEO_FEED -> R.string.app_blocking_summary_video_feed
         AppSurface.PICTURE_IN_PICTURE -> R.string.app_blocking_summary_picture_in_picture
         AppSurface.COMMENTS -> R.string.app_blocking_summary_comments

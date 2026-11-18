@@ -15,6 +15,7 @@ internal object AppBlockSettings {
     private const val REELS_PREFIX = "block_reels:"
     private const val STORIES_PREFIX = "block_stories:"
     private const val SNAPCHAT_DISCOVER_SEPARATED_KEY = "snapchat_discover_separated"
+    private const val BROWSER_TEST_KEY = "instagram_browser_test"
     private const val MESSAGES_PREFIX = "allow_messages:"
 
     fun loadRules(context: Context): List<AppBlockRule> {
@@ -58,7 +59,8 @@ internal object AppBlockSettings {
                     dailyLimitMinutes = preferences.getInt(LIMIT_PREFIX + packageName, 0)
                         .takeIf { it > 0 },
                     blockedSurfaces = migratedSurfaces,
-                    allowMessages = preferences.getBoolean(MESSAGES_PREFIX + packageName, true)
+                    allowMessages = preferences.getBoolean(MESSAGES_PREFIX + packageName, true),
+                    browserInstagramTest = packageName == INSTAGRAM_PACKAGE && preferences.getBoolean(BROWSER_TEST_KEY, false)
                 )
             }
             .filter { it.isConfigured }
@@ -90,6 +92,7 @@ internal object AppBlockSettings {
                 rule.blockedSurfaces.mapTo(mutableSetOf()) { it.name }
             )
             putBoolean(MESSAGES_PREFIX + rule.packageName, rule.allowMessages)
+            if (rule.packageName == INSTAGRAM_PACKAGE) putBoolean(BROWSER_TEST_KEY, rule.browserInstagramTest)
             if (rule.packageName == SNAPCHAT_PACKAGE) {
                 putBoolean(SNAPCHAT_DISCOVER_SEPARATED_KEY, true)
             }
@@ -109,6 +112,7 @@ internal object AppBlockSettings {
             remove(REELS_PREFIX + packageName)
             remove(STORIES_PREFIX + packageName)
             remove(MESSAGES_PREFIX + packageName)
+            if (packageName == INSTAGRAM_PACKAGE) remove(BROWSER_TEST_KEY)
         }
     }
 }
