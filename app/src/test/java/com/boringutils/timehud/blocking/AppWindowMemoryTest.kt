@@ -65,6 +65,21 @@ class AppWindowMemoryTest {
     }
 
     @Test
+    fun screen_lock_reset_does_not_restore_a_stale_block_from_an_unreadable_unlocked_window() {
+        val memory = AppWindowMemory()
+        memory.update(listOf(reels), false)
+        memory.update(emptyList(), true)
+        // Screen-off/keyguard cleanup discards state, unlike a notification panel.
+        memory.clear()
+        val unreadable = reels.copy(surface = AppSurface.UNKNOWN)
+        assertEquals(listOf(unreadable), memory.update(listOf(unreadable), false))
+        val rule = AppBlockRule(INSTAGRAM_PACKAGE, blockedSurfaces = setOf(AppSurface.REELS))
+        assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(rule, 0L, unreadable.surface))
+        val observed = memory.update(listOf(reels), false).single()
+        assertEquals(BlockDecision.Block(BlockReason.REELS), AppBlockDecisionEngine.decide(rule, 0L, observed.surface))
+    }
+
+    @Test
     fun remembered_surface_still_obeys_rule_changes_and_grace() {
         val memory = AppWindowMemory()
         memory.update(listOf(reels), false)

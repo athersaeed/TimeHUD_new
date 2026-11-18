@@ -270,6 +270,7 @@ Preserve these unless the request explicitly changes them.
 - An actively selected/current Instagram Stories, Reels, or Explore surface must beat a stale Messages container left in the accessibility tree; an actively selected Messages tab is classified as either inbox or open thread rather than receiving a blanket exemption.
 - Blocking overlays cover only the target window's exposed regions; higher-layer pop-up/system windows must remain visible and interactive.
 - Disabling or revoking the accessibility service must remove service-owned blocking overlays.
+- Screen-off or a locked keyguard must remove app-control shields and grace countdown views and clear remembered windows; unlocking requires fresh window evaluation before blocking resumes.
 
 ### Usage restriction behavior
 

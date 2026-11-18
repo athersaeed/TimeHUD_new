@@ -3,6 +3,10 @@ package com.boringutils.timehud.blocking
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -21,6 +25,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Button
 import android.widget.FrameLayout
+import androidx.core.content.ContextCompat
 import com.boringutils.timehud.AppLimitGraceControls
 import com.boringutils.timehud.ActiveOverlayContentController
 import com.boringutils.timehud.ActiveOverlayTrigger
@@ -59,6 +64,15 @@ class TimeHudAccessibilityService : AccessibilityService() {
     private var focusStartedWallMs = 0L
 
     private val evaluateRunnable = Runnable { evaluateWindows() }
+    private var screenReceiverRegistered = false
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> suspendBlockingForScreen()
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> scheduleEvaluation(delayMs = 0L)
+            }
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -72,6 +86,19 @@ class TimeHudAccessibilityService : AccessibilityService() {
             onEndGrace = ::endGrace,
             onGraceExpired = { scheduleEvaluation(delayMs = 0L) }
         )
+        if (!screenReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                screenStateReceiver,
+                IntentFilter().apply {
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                    addAction(Intent.ACTION_SCREEN_ON)
+                    addAction(Intent.ACTION_USER_PRESENT)
+                },
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            screenReceiverRegistered = true
+        }
         refreshBrickModeCatalog(force = true)
         scheduleEvaluation(delayMs = 0L)
     }
@@ -98,6 +125,10 @@ class TimeHudAccessibilityService : AccessibilityService() {
         AccessibilityForegroundAppStateStore.markDisconnected()
         destroyed.set(true)
         mainHandler.removeCallbacksAndMessages(null)
+        if (screenReceiverRegistered) {
+            unregisterReceiver(screenStateReceiver)
+            screenReceiverRegistered = false
+        }
         flushFocusedUsage()
         appWindowMemory.clear()
         rememberedAppWindows = emptyList()
@@ -131,7 +162,24 @@ class TimeHudAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun isScreenAvailableForBlocking(): Boolean =
+        getSystemService(PowerManager::class.java).isInteractive &&
+            !getSystemService(KeyguardManager::class.java).isKeyguardLocked
+
+    private fun suspendBlockingForScreen() {
+        mainHandler.removeCallbacks(evaluateRunnable)
+        AccessibilityForegroundAppStateStore.updatePackage(null)
+        updateFocusedPackage(null)
+        appWindowMemory.clear()
+        rememberedAppWindows = emptyList()
+        if (::overlayController.isInitialized) overlayController.clear()
+    }
+
     private fun evaluateWindows() {
+        if (!isScreenAvailableForBlocking()) {
+            suspendBlockingForScreen()
+            return
+        }
         val windows = runCatching { windows.orEmpty() }.getOrDefault(emptyList())
         AccessibilityForegroundAppStateStore.updatePackage(findFocusedPackage(windows))
         val nowWallMs = System.currentTimeMillis()
@@ -287,6 +335,11 @@ class TimeHudAccessibilityService : AccessibilityService() {
             }
         }
 
+        // Lock state can change while the accessibility tree is being inspected.
+        if (!isScreenAvailableForBlocking()) {
+            suspendBlockingForScreen()
+            return
+        }
         overlayController.render(targets, geometries, graceStatus)
         scheduleNextBoundary(
             appWindows = appWindows,
