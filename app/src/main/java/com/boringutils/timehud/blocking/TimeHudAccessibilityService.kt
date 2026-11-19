@@ -659,17 +659,26 @@ internal object AppWindowInspector {
         var snapchatFriendStoryNavigation = false
         var instagramNavigationTop: Int? = null
         var youtubeCommentsPanelOpen = false
+        var facebookStoryReply = false
+        val isFacebook = packageName == FACEBOOK_PACKAGE || packageName == FACEBOOK_LITE_PACKAGE
         val windowBounds = Rect().also(root::getBoundsInScreen)
         traverse(root) { node ->
             // Apps can retain closed viewers/navigation in the tree.
             // Only visible, on-screen nodes may describe its current surface.
             if (packageName == SNAPCHAT_PACKAGE || packageName == INSTAGRAM_PACKAGE ||
-                packageName == YOUTUBE_PACKAGE) {
+                packageName == YOUTUBE_PACKAGE || isFacebook) {
                 val nodeBounds = Rect().also(node::getBoundsInScreen)
                 if (!node.isVisibleToUser || !Rect.intersects(windowBounds, nodeBounds)) return@traverse
             }
             if (packageName == YOUTUBE_PACKAGE && isYouTubeCommentsHeader(node)) {
                 youtubeCommentsPanelOpen = true
+            }
+            if (isFacebook) {
+                facebookSelectedNavigation(node)?.let(selectedLabels::add)
+                if (node.isClickable && node.className == "android.widget.Button") {
+                    val description = node.contentDescription?.toString()?.normalizeSignal()
+                    if (isFacebookStoryReplyDescription(description)) facebookStoryReply = true
+                }
             }
             if (packageName == INSTAGRAM_PACKAGE) {
                 if (node.viewIdResourceName == "$INSTAGRAM_PACKAGE:id/tab_bar") {
@@ -689,6 +698,8 @@ internal object AppWindowInspector {
             }
                 .map { it.toString().normalizeSignal() }
                 .filter { it.isNotEmpty() }
+                // Only the reply-control marker is retained, never its recipient.
+                .filterNot { isFacebook && isFacebookStoryReplyDescription(it) }
             if (packageName == SNAPCHAT_PACKAGE && (
                 isSnapchatFriendStoryNavigation(node.viewIdResourceName, node.text) ||
                     isSnapchatFriendStoryNavigation(node.viewIdResourceName, node.contentDescription)
@@ -719,11 +730,24 @@ internal object AppWindowInspector {
             windowTitle = windowTitle.orEmpty().normalizeSignal(),
             snapchatFriendStoryNavigation = snapchatFriendStoryNavigation,
             youtubeCommentsPanelOpen = youtubeCommentsPanelOpen,
+            facebookStoryViewerOpen = facebookStoryReply,
             instagramFeedBounds = instagramNavigationTop?.let { bottom ->
                 ScreenRect(windowBounds.left, windowBounds.top, windowBounds.right, bottom)
             }
         )
     }
+
+    private fun facebookSelectedNavigation(node: AccessibilityNodeInfo): String? {
+        if (!node.isSelected || !node.isClickable ||
+            node.className != "android.app.ActionBar\$Tab") return null
+        val description = node.contentDescription?.toString()?.normalizeSignal() ?: return null
+        return listOf("reels", "marketplace").firstOrNull { label ->
+            description == label || description.startsWith("$label, tab ")
+        }
+    }
+
+    private fun isFacebookStoryReplyDescription(description: String?): Boolean =
+        description?.startsWith("send message, reply to ") == true && description.endsWith("'s story")
 
     private fun isYouTubeCommentsHeader(node: AccessibilityNodeInfo): Boolean {
         if (node.viewIdResourceName != "$YOUTUBE_PACKAGE:id/modern_title" ||

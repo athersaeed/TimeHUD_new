@@ -472,6 +472,19 @@ class AppBlockingTest {
     }
 
     @Test
+    fun facebook_story_controls_take_priority_and_obey_the_independent_story_rule() {
+        for (packageName in listOf(FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE)) {
+            val surface = AppSurfaceClassifier.classify(packageName,
+                AppUiSignals(facebookStoryViewerOpen = true, selectedLabels = setOf("reels")))
+            assertEquals(AppSurface.STORIES, surface)
+            assertEquals(BlockDecision.Block(BlockReason.STORIES), AppBlockDecisionEngine.decide(
+                AppBlockRule(packageName, blockedSurfaces = setOf(AppSurface.STORIES)), 0L, surface))
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+                AppBlockRule(packageName, blockedSurfaces = setOf(AppSurface.REELS)), 0L, surface))
+        }
+    }
+
+    @Test
     fun open_instagram_chat_has_priority_over_stale_reels_signals() {
         val surface = AppSurfaceClassifier.classify(
             INSTAGRAM_PACKAGE,

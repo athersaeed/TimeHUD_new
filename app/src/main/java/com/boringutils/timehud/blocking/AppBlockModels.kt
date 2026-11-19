@@ -142,7 +142,8 @@ internal data class AppUiSignals(
     val snapchatFriendStoryNavigation: Boolean = false,
     val isCompactWindow: Boolean = false,
     val instagramFeedBounds: ScreenRect? = null,
-    val youtubeCommentsPanelOpen: Boolean = false
+    val youtubeCommentsPanelOpen: Boolean = false,
+    val facebookStoryViewerOpen: Boolean = false
 ) {
     fun hasLabel(vararg candidates: String): Boolean =
         candidates.any { candidate -> labels.any { it == candidate || it.startsWith("$candidate ") } }
@@ -234,7 +235,7 @@ internal object AppSurfaceClassifier {
     }
 
     private fun classifyFacebook(signals: AppUiSignals): AppSurface = when {
-        signals.hasViewId("story_viewer", "stories_viewer") ||
+        signals.facebookStoryViewerOpen || signals.hasViewId("story_viewer", "stories_viewer") ||
             signals.hasLabel("story by") -> AppSurface.STORIES
         signals.hasSelectedLabel("reels") ||
             signals.hasViewId("reels_tab", "reels_feed", "reels_viewer") ||
