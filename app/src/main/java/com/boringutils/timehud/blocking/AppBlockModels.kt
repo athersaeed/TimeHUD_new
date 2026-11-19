@@ -141,7 +141,7 @@ internal data class AppUiSignals(
     val windowTitle: String = "",
     val snapchatFriendStoryNavigation: Boolean = false,
     val isCompactWindow: Boolean = false,
-    val instagramFeedBounds: ScreenRect? = null,
+    val instagramContentBounds: ScreenRect? = null,
     val youtubeCommentsPanelOpen: Boolean = false,
     val facebookStoryViewerOpen: Boolean = false
 ) {

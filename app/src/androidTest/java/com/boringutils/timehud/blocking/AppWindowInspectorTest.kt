@@ -154,7 +154,7 @@ class AppWindowInspectorTest {
     fun instagram_selected_home_icon_identifies_feed_and_preserves_bottom_navigation() {
         val signals = inspectInstagramNavigation("feed_tab", selected = true)
         assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE, signals))
-        org.junit.Assert.assertTrue(checkNotNull(signals.instagramFeedBounds).height > 0)
+        org.junit.Assert.assertTrue(checkNotNull(signals.instagramContentBounds).height > 0)
         assertEquals(setOf("home"), signals.selectedLabels)
     }
 
@@ -207,7 +207,7 @@ class AppWindowInspectorTest {
             val location = IntArray(2)
             scenario.onActivity { navigationBar.getLocationOnScreen(location) }
             AppWindowInspector.inspect(root, null, INSTAGRAM_PACKAGE).also { signals ->
-                assertEquals(location[1], checkNotNull(signals.instagramFeedBounds).bottom)
+                assertEquals(location[1], checkNotNull(signals.instagramContentBounds).bottom)
             }
         }
     }

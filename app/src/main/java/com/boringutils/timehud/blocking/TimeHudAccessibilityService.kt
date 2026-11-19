@@ -252,14 +252,14 @@ class TimeHudAccessibilityService : AccessibilityService() {
             if (brickModeDecision == BlockDecision.Allow && rule == null && !inspectBrowser) {
                 return@mapNotNull null
             }
-            var instagramFeedBounds: ScreenRect? = null
+            var instagramContentBounds: ScreenRect? = null
             val surface = if (rule != null && brickModeDecision == BlockDecision.Allow) {
                 val signals = AppWindowInspector.inspect(
                     root = root,
                     windowTitle = runCatching { window.title?.toString() }.getOrNull(),
                     packageName = packageName
                 ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics))
-                instagramFeedBounds = signals.instagramFeedBounds
+                instagramContentBounds = signals.instagramContentBounds
                 if (signals.labels.isEmpty() && signals.viewIds.isEmpty()) {
                     hasUnreadableAppWindow = true
                     AppSurface.UNKNOWN
@@ -282,7 +282,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
                     BrowserInstagramClassifier.decision(BrowserInstagramClassifier.classify(it.signals))
                 } ?: BlockDecision.Allow,
                 browserBounds = browser?.contentBounds,
-                instagramFeedBounds = instagramFeedBounds
+                instagramContentBounds = instagramContentBounds
             )
         }
 
@@ -353,9 +353,9 @@ class TimeHudAccessibilityService : AccessibilityService() {
                     bounds = if (appControlDecision == BlockDecision.Allow &&
                         observed.browserDecision is BlockDecision.Block
                     ) observed.browserBounds ?: return@mapNotNull null
-                    else if (decision.reason == BlockReason.HOME_FEED &&
-                        observed.packageName == INSTAGRAM_PACKAGE
-                    ) observed.instagramFeedBounds?.intersection(observed.geometry.bounds)
+                    else if (observed.packageName == INSTAGRAM_PACKAGE &&
+                        (decision.reason == BlockReason.HOME_FEED || decision.reason == BlockReason.REELS)
+                    ) observed.instagramContentBounds?.intersection(observed.geometry.bounds)
                         ?: observed.geometry.bounds
                     else observed.geometry.bounds,
                     layer = observed.geometry.layer,
@@ -633,7 +633,7 @@ private data class ObservedAppWindow(
     val brickModeDecision: BlockDecision,
     val browserDecision: BlockDecision = BlockDecision.Allow,
     val browserBounds: ScreenRect? = null,
-    val instagramFeedBounds: ScreenRect? = null
+    val instagramContentBounds: ScreenRect? = null
 )
 
 private data class BlockTarget(
@@ -731,7 +731,7 @@ internal object AppWindowInspector {
             snapchatFriendStoryNavigation = snapchatFriendStoryNavigation,
             youtubeCommentsPanelOpen = youtubeCommentsPanelOpen,
             facebookStoryViewerOpen = facebookStoryReply,
-            instagramFeedBounds = instagramNavigationTop?.let { bottom ->
+            instagramContentBounds = instagramNavigationTop?.let { bottom ->
                 ScreenRect(windowBounds.left, windowBounds.top, windowBounds.right, bottom)
             }
         )

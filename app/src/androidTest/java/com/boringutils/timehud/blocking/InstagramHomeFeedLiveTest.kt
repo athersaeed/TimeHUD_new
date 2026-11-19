@@ -27,7 +27,7 @@ class InstagramHomeFeedLiveTest {
             "messages=${signals.hasSelectedLabel("messages", "message")} " +
             "header=${signals.hasViewId("main_feed_action_bar")} " +
             "feedList=${signals.hasViewId("sticky_header_list")} " +
-            "feedBounds=${signals.instagramFeedBounds}")
+            "feedBounds=${signals.instagramContentBounds}")
         assertEquals(expected, surface.name)
     }
 }
