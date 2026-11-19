@@ -141,7 +141,8 @@ internal data class AppUiSignals(
     val windowTitle: String = "",
     val snapchatFriendStoryNavigation: Boolean = false,
     val isCompactWindow: Boolean = false,
-    val instagramFeedBounds: ScreenRect? = null
+    val instagramFeedBounds: ScreenRect? = null,
+    val youtubeCommentsPanelOpen: Boolean = false
 ) {
     fun hasLabel(vararg candidates: String): Boolean =
         candidates.any { candidate -> labels.any { it == candidate || it.startsWith("$candidate ") } }
@@ -184,7 +185,8 @@ internal object AppSurfaceClassifier {
             signals.isCompactWindow -> {
             AppSurface.PICTURE_IN_PICTURE
         }
-        signals.hasViewId("comments_panel", "comments_sheet", "comment_replies") ||
+        signals.youtubeCommentsPanelOpen ||
+            signals.hasViewId("comments_panel", "comments_sheet", "comment_replies") ||
             signals.hasSelectedLabel("comments") -> AppSurface.COMMENTS
         signals.hasViewId("search_results", "search_query", "search_edit_text") ||
             signals.hasFocusedLabel("search", "search youtube") -> AppSurface.VIDEO_SEARCH

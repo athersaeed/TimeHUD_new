@@ -658,13 +658,18 @@ internal object AppWindowInspector {
         val viewIds = mutableSetOf<String>()
         var snapchatFriendStoryNavigation = false
         var instagramNavigationTop: Int? = null
+        var youtubeCommentsPanelOpen = false
         val windowBounds = Rect().also(root::getBoundsInScreen)
         traverse(root) { node ->
-            // Instagram and Snapchat retain closed viewers/navigation in the tree.
+            // Apps can retain closed viewers/navigation in the tree.
             // Only visible, on-screen nodes may describe its current surface.
-            if (packageName == SNAPCHAT_PACKAGE || packageName == INSTAGRAM_PACKAGE) {
+            if (packageName == SNAPCHAT_PACKAGE || packageName == INSTAGRAM_PACKAGE ||
+                packageName == YOUTUBE_PACKAGE) {
                 val nodeBounds = Rect().also(node::getBoundsInScreen)
                 if (!node.isVisibleToUser || !Rect.intersects(windowBounds, nodeBounds)) return@traverse
+            }
+            if (packageName == YOUTUBE_PACKAGE && isYouTubeCommentsHeader(node)) {
+                youtubeCommentsPanelOpen = true
             }
             if (packageName == INSTAGRAM_PACKAGE) {
                 if (node.viewIdResourceName == "$INSTAGRAM_PACKAGE:id/tab_bar") {
@@ -713,10 +718,25 @@ internal object AppWindowInspector {
             viewIds = viewIds,
             windowTitle = windowTitle.orEmpty().normalizeSignal(),
             snapchatFriendStoryNavigation = snapchatFriendStoryNavigation,
+            youtubeCommentsPanelOpen = youtubeCommentsPanelOpen,
             instagramFeedBounds = instagramNavigationTop?.let { bottom ->
                 ScreenRect(windowBounds.left, windowBounds.top, windowBounds.right, bottom)
             }
         )
+    }
+
+    private fun isYouTubeCommentsHeader(node: AccessibilityNodeInfo): Boolean {
+        if (node.viewIdResourceName != "$YOUTUBE_PACKAGE:id/modern_title" ||
+            node.text?.toString()?.normalizeSignal() !in setOf("comments", "replies")) return false
+        // A preview card or a video named Comments is not an open comments panel.
+        var ancestor = node.parent
+        repeat(8) {
+            val parent = ancestor ?: return false
+            if (!parent.isVisibleToUser) return false
+            if (parent.viewIdResourceName == "$YOUTUBE_PACKAGE:id/panel_header") return true
+            ancestor = parent.parent
+        }
+        return false
     }
 
     private fun instagramSelectedNavigation(node: AccessibilityNodeInfo): String? {

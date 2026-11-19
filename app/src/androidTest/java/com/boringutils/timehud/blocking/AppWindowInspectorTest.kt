@@ -16,6 +16,83 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppWindowInspectorTest {
     @Test
+    fun youtube_visible_comments_and_replies_headers_identify_open_panel() {
+        listOf("Comments", "Replies").forEach { title ->
+            val signals = inspectYouTubePanel(title)
+            assertEquals(true, signals.youtubeCommentsPanelOpen)
+            assertEquals(AppSurface.COMMENTS, AppSurfaceClassifier.classify(YOUTUBE_PACKAGE, signals))
+        }
+    }
+
+    @Test
+    fun youtube_preview_and_other_panel_titles_remain_available() {
+        listOf(inspectYouTubePanel("Comments", panelHeader = false),
+            inspectYouTubePanel("Description"), inspectYouTubePanel("Comments about Kotlin"))
+            .forEach { signals ->
+                assertFalse(signals.youtubeCommentsPanelOpen)
+                assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(YOUTUBE_PACKAGE, signals))
+            }
+    }
+
+    @Test
+    fun youtube_hidden_and_offscreen_comments_headers_do_not_block_playback() {
+        listOf(inspectYouTubePanel("Comments", hidden = true),
+            inspectYouTubePanel("Comments", offscreen = true)).forEach { signals ->
+            assertFalse(signals.youtubeCommentsPanelOpen)
+            assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(YOUTUBE_PACKAGE, signals))
+        }
+    }
+
+    private fun inspectYouTubePanel(
+        title: String,
+        panelHeader: Boolean = true,
+        hidden: Boolean = false,
+        offscreen: Boolean = false
+    ): AppUiSignals {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        return ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                fun View.marker(id: String) {
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    accessibilityDelegate = object : View.AccessibilityDelegate() {
+                        override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                            super.onInitializeAccessibilityNodeInfo(host, info)
+                            info.viewIdResourceName = "$YOUTUBE_PACKAGE:id/$id"
+                        }
+                    }
+                }
+                val screen = FrameLayout(activity)
+                val header = FrameLayout(activity).apply {
+                    marker(if (panelHeader) "panel_header" else "video_title")
+                    if (hidden) visibility = View.INVISIBLE
+                }
+                // Match the real nested title path; neither the preview's label nor
+                // a generic panel by itself should qualify.
+                var container = header
+                repeat(4) {
+                    val child = FrameLayout(activity).apply {
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    }
+                    container.addView(child, FrameLayout.LayoutParams(500, 150))
+                    container = child
+                }
+                container.addView(TextView(activity).apply {
+                    text = title
+                    marker("modern_title")
+                }, FrameLayout.LayoutParams(500, 120))
+                screen.addView(header, FrameLayout.LayoutParams(500, 150).apply {
+                    topMargin = if (offscreen) 10000 else 200
+                })
+                activity.setContentView(screen)
+            }
+            instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.waitForIdle(100L, 5000L)
+            AppWindowInspector.inspect(checkNotNull(instrumentation.uiAutomation.rootInActiveWindow),
+                null, YOUTUBE_PACKAGE)
+        }
+    }
+
+    @Test
     fun x_explore_description_inside_selected_tab_is_recognized() {
         val signals = inspectTab(selected = true, navigationDescription = "Explore")
         assertEquals(AppSurface.EXPLORE, AppSurfaceClassifier.classify(X_PACKAGE, signals))

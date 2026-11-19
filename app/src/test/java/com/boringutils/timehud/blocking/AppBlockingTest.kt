@@ -252,6 +252,21 @@ class AppBlockingTest {
     }
 
     @Test
+    fun youtube_open_comments_header_blocks_but_preview_text_does_not() {
+        val rule = AppBlockRule(YOUTUBE_PACKAGE, blockedSurfaces = setOf(AppSurface.COMMENTS))
+        val openPanel = AppSurfaceClassifier.classify(YOUTUBE_PACKAGE,
+            AppUiSignals(youtubeCommentsPanelOpen = true))
+        assertEquals(AppSurface.COMMENTS, openPanel)
+        assertEquals(BlockDecision.Block(BlockReason.COMMENTS),
+            AppBlockDecisionEngine.decide(rule, 0L, openPanel))
+        val preview = AppSurfaceClassifier.classify(YOUTUBE_PACKAGE,
+            AppUiSignals(labels = setOf("comments", "replies"),
+                viewIds = setOf("com.google.android.youtube:id/modern_title")))
+        assertEquals(AppSurface.OTHER, preview)
+        assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(rule, 0L, preview))
+    }
+
+    @Test
     fun snapchat_section_rules_block_independently_and_leave_chat_and_camera_available() {
         val sections = listOf(
             Triple("spotlight", AppSurface.SPOTLIGHT, BlockReason.SPOTLIGHT),
