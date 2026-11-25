@@ -13,7 +13,7 @@ import org.junit.Test
 class FacebookSurfaceLiveTest {
     @Test fun inspect_requested_facebook_surface() {
         val expected = InstrumentationRegistry.getArguments().getString("facebookSurface")
-        assumeTrue(expected in setOf("STORIES", "REELS", "MARKETPLACE", "OTHER"))
+        assumeTrue(expected in setOf("HOME_FEED", "STORIES", "REELS", "MARKETPLACE", "OTHER"))
         val automation = InstrumentationRegistry.getInstrumentation()
             .getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
         automation.serviceInfo = automation.serviceInfo.apply {
@@ -45,7 +45,7 @@ class FacebookSurfaceLiveTest {
             for (i in 0 until node.childCount) node.getChild(i)?.let(queue::addLast)
         }
         val surface = AppSurfaceClassifier.classify(FACEBOOK_PACKAGE, signals)
-        println("Facebook surface=$surface story=${signals.facebookStoryViewerOpen} nodes=$visited controls=$controls")
+        println("Facebook surface=$surface home=${signals.facebookHomeFeedOpen} homeBounds=${signals.facebookHomeBounds} story=${signals.facebookStoryViewerOpen} nodes=$visited controls=$controls")
         assertEquals(expected, surface.name)
     }
 }

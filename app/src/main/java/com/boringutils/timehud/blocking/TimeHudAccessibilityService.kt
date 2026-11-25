@@ -193,6 +193,8 @@ class TimeHudAccessibilityService : AccessibilityService() {
         val graceStatus = AppLimitGracePolicy.status(graceState, nowWallMs)
         val rules = AppBlockSettings.loadRules(this).associateBy { it.packageName }
         val browserTestEnabled = rules[INSTAGRAM_PACKAGE]?.browserInstagramTest == true
+        val facebookBrowserSurfaces = rules[FACEBOOK_PACKAGE]
+            ?.takeIf { it.browserFacebook }?.blockedSurfaces.orEmpty()
         val brickModeConfig = BrickModeSettings.load(this, nowWallMs)
         val brickModeSchedules = BrickModeSettings.loadSchedules(this)
         val scheduledRestrictionMode = BrickModeSchedulePolicy.activeMode(
@@ -248,11 +250,13 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 scheduledMode = scheduledRestrictionMode,
                 nowMs = nowWallMs
             )
+            val inspectFacebookBrowser = facebookBrowserSurfaces.isNotEmpty() && packageName in INSTAGRAM_TEST_BROWSERS
             val inspectBrowser = browserTestEnabled && packageName in INSTAGRAM_TEST_BROWSERS
-            if (brickModeDecision == BlockDecision.Allow && rule == null && !inspectBrowser) {
+            if (brickModeDecision == BlockDecision.Allow && rule == null && !inspectBrowser && !inspectFacebookBrowser) {
                 return@mapNotNull null
             }
             var instagramContentBounds: ScreenRect? = null
+            var facebookHomeBounds: ScreenRect? = null
             val surface = if (rule != null && brickModeDecision == BlockDecision.Allow) {
                 val signals = AppWindowInspector.inspect(
                     root = root,
@@ -260,6 +264,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
                     packageName = packageName
                 ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics))
                 instagramContentBounds = signals.instagramContentBounds
+                facebookHomeBounds = signals.facebookHomeBounds
                 if (signals.labels.isEmpty() && signals.viewIds.isEmpty()) {
                     hasUnreadableAppWindow = true
                     AppSurface.UNKNOWN
@@ -272,6 +277,9 @@ class TimeHudAccessibilityService : AccessibilityService() {
             val browser = if (inspectBrowser && brickModeDecision == BlockDecision.Allow) {
                 BrowserInstagramInspector.inspect(root, packageName)
             } else null
+            val facebookBrowser = if (inspectFacebookBrowser && brickModeDecision == BlockDecision.Allow) {
+                BrowserFacebookInspector.inspect(root, packageName)
+            } else null
             ObservedAppWindow(
                 geometry = geometry,
                 packageName = packageName,
@@ -282,7 +290,11 @@ class TimeHudAccessibilityService : AccessibilityService() {
                     BrowserInstagramClassifier.decision(BrowserInstagramClassifier.classify(it.signals))
                 } ?: BlockDecision.Allow,
                 browserBounds = browser?.contentBounds,
-                instagramContentBounds = instagramContentBounds
+                facebookBrowserSurface = facebookBrowser?.let { BrowserFacebookClassifier.classify(it.signals) }
+                    ?: AppSurface.OTHER,
+                facebookBrowserBounds = facebookBrowser?.contentBounds,
+                instagramContentBounds = instagramContentBounds,
+                facebookHomeBounds = facebookHomeBounds
             )
         }
 
@@ -342,8 +354,17 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 focusedUsageMs = focusedUsageMs,
                 surface = observed.surface
             )
-            val combinedDecision = if (appControlDecision == BlockDecision.Allow) {
+            val facebookDecision = BrowserFacebookClassifier.decision(
+                observed.facebookBrowserSurface, facebookBrowserSurfaces
+            )
+            val browserDecision = if (observed.browserDecision is BlockDecision.Block) {
                 observed.browserDecision
+            } else facebookDecision
+            val browserBounds = if (observed.browserDecision is BlockDecision.Block) {
+                observed.browserBounds
+            } else observed.facebookBrowserBounds
+            val combinedDecision = if (appControlDecision == BlockDecision.Allow) {
+                browserDecision
             } else appControlDecision
             val decision = AppLimitGracePolicy.applyTo(combinedDecision, graceStatus)
             when (decision) {
@@ -351,11 +372,15 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 is BlockDecision.Block -> BlockTarget(
                     windowId = observed.geometry.id,
                     bounds = if (appControlDecision == BlockDecision.Allow &&
-                        observed.browserDecision is BlockDecision.Block
-                    ) observed.browserBounds ?: return@mapNotNull null
+                        browserDecision is BlockDecision.Block
+                    ) browserBounds ?: return@mapNotNull null
                     else if (observed.packageName == INSTAGRAM_PACKAGE &&
                         (decision.reason == BlockReason.HOME_FEED || decision.reason == BlockReason.REELS)
                     ) observed.instagramContentBounds?.intersection(observed.geometry.bounds)
+                        ?: observed.geometry.bounds
+                    else if (observed.packageName in setOf(FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE) &&
+                        decision.reason == BlockReason.HOME_FEED
+                    ) observed.facebookHomeBounds?.intersection(observed.geometry.bounds)
                         ?: observed.geometry.bounds
                     else observed.geometry.bounds,
                     layer = observed.geometry.layer,
@@ -633,7 +658,10 @@ private data class ObservedAppWindow(
     val brickModeDecision: BlockDecision,
     val browserDecision: BlockDecision = BlockDecision.Allow,
     val browserBounds: ScreenRect? = null,
-    val instagramContentBounds: ScreenRect? = null
+    val facebookBrowserSurface: AppSurface = AppSurface.OTHER,
+    val facebookBrowserBounds: ScreenRect? = null,
+    val instagramContentBounds: ScreenRect? = null,
+    val facebookHomeBounds: ScreenRect? = null
 )
 
 private data class BlockTarget(
@@ -660,6 +688,10 @@ internal object AppWindowInspector {
         var instagramNavigationTop: Int? = null
         var youtubeCommentsPanelOpen = false
         var facebookStoryReply = false
+        var facebookHomeSelected = false
+        var facebookLogoBottom: Int? = null
+        var facebookSearch = false
+        var facebookNavigationTop: Int? = null
         val isFacebook = packageName == FACEBOOK_PACKAGE || packageName == FACEBOOK_LITE_PACKAGE
         val windowBounds = Rect().also(root::getBoundsInScreen)
         traverse(root) { node ->
@@ -668,13 +700,30 @@ internal object AppWindowInspector {
             if (packageName == SNAPCHAT_PACKAGE || packageName == INSTAGRAM_PACKAGE ||
                 packageName == YOUTUBE_PACKAGE || isFacebook) {
                 val nodeBounds = Rect().also(node::getBoundsInScreen)
-                if (!node.isVisibleToUser || !Rect.intersects(windowBounds, nodeBounds)) return@traverse
+                if (!node.isVisibleToUser || (isFacebook && nodeBounds.isEmpty) ||
+                    !Rect.intersects(windowBounds, nodeBounds)) return@traverse
             }
             if (packageName == YOUTUBE_PACKAGE && isYouTubeCommentsHeader(node)) {
                 youtubeCommentsPanelOpen = true
             }
             if (isFacebook) {
-                facebookSelectedNavigation(node)?.let(selectedLabels::add)
+                facebookSelectedNavigation(node)?.let { label ->
+                    selectedLabels += label
+                    if (label == "home") facebookHomeSelected = true
+                }
+                if (node.isClickable) {
+                    val description = node.contentDescription?.toString()?.normalizeSignal()
+                    val bounds = Rect().also(node::getBoundsInScreen)
+                    if (description == "facebook logo" && node.className == "android.view.View") {
+                        facebookLogoBottom = bounds.bottom
+                    }
+                    if (description == "search facebook" && node.className == "android.widget.Button") {
+                        facebookSearch = true
+                    }
+                    if (node.className == "android.app.ActionBar\$Tab" &&
+                        facebookSelectedTabLabel(node.contentDescription?.toString()) != null
+                    ) facebookNavigationTop = minOf(facebookNavigationTop ?: bounds.top, bounds.top)
+                }
                 if (node.isClickable && node.className == "android.widget.Button") {
                     val description = node.contentDescription?.toString()?.normalizeSignal()
                     if (isFacebookStoryReplyDescription(description)) facebookStoryReply = true
@@ -731,6 +780,12 @@ internal object AppWindowInspector {
             snapchatFriendStoryNavigation = snapchatFriendStoryNavigation,
             youtubeCommentsPanelOpen = youtubeCommentsPanelOpen,
             facebookStoryViewerOpen = facebookStoryReply,
+            facebookHomeFeedOpen = facebookHomeSelected && facebookSearch && facebookLogoBottom != null,
+            facebookHomeBounds = facebookLogoBottom?.let { top ->
+                val bottom = facebookNavigationTop ?: windowBounds.bottom
+                ScreenRect(windowBounds.left, top, windowBounds.right, bottom)
+                    .intersection(ScreenRect(windowBounds.left, windowBounds.top, windowBounds.right, windowBounds.bottom))
+            },
             instagramContentBounds = instagramNavigationTop?.let { bottom ->
                 ScreenRect(windowBounds.left, windowBounds.top, windowBounds.right, bottom)
             }
@@ -740,9 +795,13 @@ internal object AppWindowInspector {
     private fun facebookSelectedNavigation(node: AccessibilityNodeInfo): String? {
         if (!node.isSelected || !node.isClickable ||
             node.className != "android.app.ActionBar\$Tab") return null
-        val description = node.contentDescription?.toString()?.normalizeSignal() ?: return null
-        return listOf("reels", "marketplace").firstOrNull { label ->
-            description == label || description.startsWith("$label, tab ")
+        return facebookSelectedTabLabel(node.contentDescription?.toString())
+    }
+
+    private fun facebookSelectedTabLabel(description: String?): String? {
+        val normalized = description?.normalizeSignal() ?: return null
+        return listOf("home", "reels", "marketplace").firstOrNull { label ->
+            normalized == label || normalized.startsWith("$label, tab ")
         }
     }
 

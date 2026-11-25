@@ -12,10 +12,12 @@ internal data class AppBlockRule(
     val dailyLimitMinutes: Int? = null,
     val blockedSurfaces: Set<AppSurface> = emptySet(),
     val allowMessages: Boolean = true,
-    val browserInstagramTest: Boolean = false
+    val browserInstagramTest: Boolean = false,
+    val browserFacebook: Boolean = false
 ) {
     val isConfigured: Boolean
-        get() = dailyLimitMinutes != null || blockedSurfaces.isNotEmpty() || browserInstagramTest
+        get() = dailyLimitMinutes != null || blockedSurfaces.isNotEmpty() || browserInstagramTest ||
+                (packageName == FACEBOOK_PACKAGE && browserFacebook)
 }
 
 internal enum class AppSurface {
@@ -51,6 +53,7 @@ internal fun supportedSurfacesFor(packageName: String): List<AppSurface> = when 
         AppSurface.EXPLORE
     )
     FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE -> listOf(
+        AppSurface.HOME_FEED,
         AppSurface.STORIES,
         AppSurface.REELS,
         AppSurface.MARKETPLACE
@@ -143,7 +146,9 @@ internal data class AppUiSignals(
     val isCompactWindow: Boolean = false,
     val instagramContentBounds: ScreenRect? = null,
     val youtubeCommentsPanelOpen: Boolean = false,
-    val facebookStoryViewerOpen: Boolean = false
+    val facebookStoryViewerOpen: Boolean = false,
+    val facebookHomeFeedOpen: Boolean = false,
+    val facebookHomeBounds: ScreenRect? = null
 ) {
     fun hasLabel(vararg candidates: String): Boolean =
         candidates.any { candidate -> labels.any { it == candidate || it.startsWith("$candidate ") } }
@@ -237,12 +242,15 @@ internal object AppSurfaceClassifier {
     private fun classifyFacebook(signals: AppUiSignals): AppSurface = when {
         signals.facebookStoryViewerOpen || signals.hasViewId("story_viewer", "stories_viewer") ||
             signals.hasLabel("story by") -> AppSurface.STORIES
-        signals.hasSelectedLabel("reels") ||
-            signals.hasViewId("reels_tab", "reels_feed", "reels_viewer") ||
+        signals.hasSelectedLabel("reels") -> AppSurface.REELS
+        signals.hasSelectedLabel("marketplace") -> AppSurface.MARKETPLACE
+        // The inspector requires the real selected Home tab and the Home toolbar.
+        // A profile/post may retain Home navigation without that toolbar.
+        signals.facebookHomeFeedOpen -> AppSurface.HOME_FEED
+        signals.hasViewId("reels_tab", "reels_feed", "reels_viewer") ||
             (signals.hasLabel("add a comment", "add a comment...") &&
                 signals.hasLabel("original audio", "follow")) -> AppSurface.REELS
-        signals.hasSelectedLabel("marketplace") ||
-            signals.hasViewId("marketplace_tab", "marketplace_feed") -> AppSurface.MARKETPLACE
+        signals.hasViewId("marketplace_tab", "marketplace_feed") -> AppSurface.MARKETPLACE
         else -> AppSurface.OTHER
     }
 

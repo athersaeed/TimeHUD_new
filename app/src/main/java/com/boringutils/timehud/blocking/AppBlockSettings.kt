@@ -15,6 +15,8 @@ internal object AppBlockSettings {
     private const val REELS_PREFIX = "block_reels:"
     private const val STORIES_PREFIX = "block_stories:"
     private const val SNAPCHAT_DISCOVER_SEPARATED_KEY = "snapchat_discover_separated"
+    private const val FACEBOOK_BROWSER_KEY = "facebook_browser_enabled"
+    private const val LEGACY_FACEBOOK_BROWSER_KEY = "facebook_browser_surfaces"
     private const val BROWSER_TEST_KEY = "instagram_browser_test"
     private const val MESSAGES_PREFIX = "allow_messages:"
 
@@ -60,7 +62,12 @@ internal object AppBlockSettings {
                         .takeIf { it > 0 },
                     blockedSurfaces = migratedSurfaces,
                     allowMessages = preferences.getBoolean(MESSAGES_PREFIX + packageName, true),
-                    browserInstagramTest = packageName == INSTAGRAM_PACKAGE && preferences.getBoolean(BROWSER_TEST_KEY, false)
+                    browserInstagramTest = packageName == INSTAGRAM_PACKAGE && preferences.getBoolean(BROWSER_TEST_KEY, false),
+                    browserFacebook = packageName == FACEBOOK_PACKAGE && preferences.getBoolean(
+                        FACEBOOK_BROWSER_KEY,
+                        preferences.getStringSet(LEGACY_FACEBOOK_BROWSER_KEY, emptySet()).orEmpty()
+                            .any { name -> FACEBOOK_BROWSER_SURFACES.any { it.name == name } }
+                    )
                 )
             }
             .filter { it.isConfigured }
@@ -93,6 +100,10 @@ internal object AppBlockSettings {
             )
             putBoolean(MESSAGES_PREFIX + rule.packageName, rule.allowMessages)
             if (rule.packageName == INSTAGRAM_PACKAGE) putBoolean(BROWSER_TEST_KEY, rule.browserInstagramTest)
+            if (rule.packageName == FACEBOOK_PACKAGE) {
+                putBoolean(FACEBOOK_BROWSER_KEY, rule.browserFacebook)
+                remove(LEGACY_FACEBOOK_BROWSER_KEY)
+            }
             if (rule.packageName == SNAPCHAT_PACKAGE) {
                 putBoolean(SNAPCHAT_DISCOVER_SEPARATED_KEY, true)
             }
@@ -113,6 +124,10 @@ internal object AppBlockSettings {
             remove(STORIES_PREFIX + packageName)
             remove(MESSAGES_PREFIX + packageName)
             if (packageName == INSTAGRAM_PACKAGE) remove(BROWSER_TEST_KEY)
+            if (packageName == FACEBOOK_PACKAGE) {
+                remove(FACEBOOK_BROWSER_KEY)
+                remove(LEGACY_FACEBOOK_BROWSER_KEY)
+            }
         }
     }
 }

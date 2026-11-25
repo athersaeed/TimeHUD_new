@@ -11,6 +11,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FacebookInspectorTest {
+    @Test fun home_requires_selected_native_tab_and_visible_fixed_toolbar() {
+        val markers = listOf(
+            Marker("Home, tab 1 of 6", tab = true, selected = true, top = 1200),
+            Marker("Facebook logo", view = true, top = 0),
+            Marker("Search Facebook", button = true, top = 0)
+        )
+        val signals = inspect(markers)
+        assertTrue(signals.facebookHomeFeedOpen)
+        assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE, signals))
+        assertNotNull(signals.facebookHomeBounds)
+        assertTrue(signals.facebookHomeBounds!!.height > 0)
+        assertTrue(signals.facebookHomeBounds!!.height < 1300)
+        for (invalid in listOf(markers.drop(1), markers.take(1),
+            listOf(markers[0].copy(tab = false)) + markers.drop(1),
+            listOf(markers[0].copy(selected = false)) + markers.drop(1),
+            listOf(markers[0]) + markers.drop(1).map { it.copy(hidden = true) },
+            listOf(markers[0]) + markers.drop(1).map { it.copy(offscreen = true) })) {
+            val other = inspect(invalid)
+            assertFalse(other.facebookHomeFeedOpen)
+            assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE, other))
+        }
+    }
+
     @Test fun selected_facebook_tabs_with_position_labels_are_recognized() {
         for (packageName in listOf(FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE)) {
             for ((label, surface) in listOf("Reels" to AppSurface.REELS, "Marketplace" to AppSurface.MARKETPLACE)) {
@@ -64,7 +87,9 @@ class FacebookInspectorTest {
         val button: Boolean = false,
         val selected: Boolean = false,
         val hidden: Boolean = false,
-        val offscreen: Boolean = false
+        val offscreen: Boolean = false,
+        val view: Boolean = false,
+        val top: Int? = null
     )
 
     private fun inspect(markers: List<Marker>, packageName: String = FACEBOOK_PACKAGE): AppUiSignals {
@@ -77,7 +102,7 @@ class FacebookInspectorTest {
                         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
                         contentDescription = marker.description
                         isSelected = marker.selected
-                        isClickable = marker.tab || marker.button
+                        isClickable = marker.tab || marker.button || marker.view
                         if (marker.hidden) visibility = View.INVISIBLE
                         accessibilityDelegate = object : View.AccessibilityDelegate() {
                             override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
@@ -85,12 +110,13 @@ class FacebookInspectorTest {
                                 info.className = when {
                                     marker.tab -> "android.app.ActionBar\$Tab"
                                     marker.button -> "android.widget.Button"
+                                    marker.view -> "android.view.View"
                                     else -> "android.widget.TextView"
                                 }
                             }
                         }
                     }, FrameLayout.LayoutParams(700, 100).apply {
-                        topMargin = if (marker.offscreen) 100_000 else index * 130
+                        topMargin = if (marker.offscreen) 100_000 else marker.top ?: (index * 130)
                     })
                 }
                 activity.setContentView(screen)

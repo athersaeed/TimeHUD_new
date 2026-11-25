@@ -6,6 +6,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppBlockingTest {
+    @Test fun facebook_home_requires_verified_toolbar_and_keeps_section_priority() {
+        val home = AppUiSignals(facebookHomeFeedOpen = true, selectedLabels = setOf("home"))
+        assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE, home))
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            AppUiSignals(selectedLabels = setOf("home"), labels = setOf("facebook logo", "search facebook"))))
+        assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            home.copy(viewIds = setOf("reels_feed", "marketplace_feed"))))
+        assertEquals(AppSurface.STORIES, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            home.copy(facebookStoryViewerOpen = true)))
+        assertEquals(AppSurface.REELS, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            home.copy(selectedLabels = setOf("reels"))))
+        assertEquals(AppSurface.MARKETPLACE, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            home.copy(selectedLabels = setOf("marketplace"))))
+    }
+
+    @Test fun facebook_home_is_a_shared_opt_in_section() {
+        for (pkg in listOf(FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE)) {
+            assertTrue(AppSurface.HOME_FEED in supportedSurfacesFor(pkg))
+            assertFalse(AppSurface.HOME_FEED in AppBlockRule(pkg).blockedSurfaces)
+        }
+        val rule = AppBlockRule(FACEBOOK_PACKAGE, blockedSurfaces = setOf(AppSurface.HOME_FEED), browserFacebook = true)
+        assertEquals(BlockDecision.Block(BlockReason.HOME_FEED),
+            AppBlockDecisionEngine.decide(rule, 0L, AppSurface.HOME_FEED))
+        assertEquals(BlockDecision.Block(BlockReason.HOME_FEED),
+            BrowserFacebookClassifier.decision(AppSurface.HOME_FEED, rule.blockedSurfaces))
+        listOf(AppSurface.REELS, AppSurface.STORIES, AppSurface.MARKETPLACE, AppSurface.OTHER).forEach {
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(rule, 0L, it))
+            assertEquals(BlockDecision.Allow, BrowserFacebookClassifier.decision(it, rule.blockedSurfaces))
+        }
+    }
+
     @Test
     fun instagram_home_requires_selected_navigation_and_visible_feed_content() {
         listOf(setOf("main_feed_action_bar"), setOf("reels_tray_container"),
@@ -206,7 +237,7 @@ class AppBlockingTest {
             supportedSurfacesFor(INSTAGRAM_PACKAGE)
         )
         assertEquals(
-            listOf(AppSurface.STORIES, AppSurface.REELS, AppSurface.MARKETPLACE),
+            listOf(AppSurface.HOME_FEED, AppSurface.STORIES, AppSurface.REELS, AppSurface.MARKETPLACE),
             supportedSurfacesFor(FACEBOOK_PACKAGE)
         )
         assertEquals(

@@ -249,7 +249,10 @@
     <string name="sleep_mode_choose_apps">Choose up to 5 apps</string>
     <string name="sleep_mode_limit_reached_title">5-app limit reached</string>
     <string name="sleep_mode_limit_reached_message">Remove one chosen app before allowing another in Sleep Mode.</string>
-    <string name="instagram_browser_test_label">Test Instagram blocking in browsers</string>
+    <string name="instagram_browser_test_label">Block Instagram in browsers</string>
     <string name="instagram_browser_test_note">Chrome, Brave, and Firefox: blocks recognized feed, Reels, Explore, and Stories pages while keeping inbox and chats available. Experimental; other pages and unrecognized screens remain available. Separate browser limits, usage restrictions, and grace periods still apply.</string>
     <string name="instagram_browser_test_summary">Browser test on</string>
+    <string name="facebook_browser_label">Block Facebook in browsers</string>
+    <string name="facebook_browser_note">Apply the Facebook sections selected above in Chrome, Brave, and Firefox, including private tabs. Comments and unrecognized pages stay available. Browser limits, usage restrictions, and grace periods still apply. Detection may be unavailable while the address bar is hidden.</string>
+    <string name="facebook_browser_summary">Browser blocking on</string>
 </resources>
