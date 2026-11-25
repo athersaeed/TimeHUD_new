@@ -14,7 +14,7 @@ internal data class HudRuntimeSample(
 )
 
 internal object DrivingAppPolicy {
-    private val knownNavigationPackages = setOf(
+    val knownNavigationPackages = setOf(
         "app.organicmaps",
         "com.generalmagic.magicearth",
         "com.google.android.apps.maps",

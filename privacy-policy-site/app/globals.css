@@ -1,0 +1,19 @@
+@import 'tailwindcss';
+:root { color-scheme: light; --background: #ffffff; --foreground: #152538; --primary: #006a9c; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--background); color: var(--foreground); font: 1rem/1.8 system-ui, sans-serif; }
+main { max-width: 49rem; margin: auto; padding: 3.5rem 1.5rem; }
+header { border-top: 5px solid #00a9dc; padding-top: 1.5rem; margin-bottom: 2rem; }
+.brand { font-size: .875rem; font-weight: 750; letter-spacing: .1em; color: #006a9c; }
+h1 { font-size: clamp(2.3rem, 7vw, 3.5rem); line-height: 1.1; letter-spacing: -.04em; margin: 1rem 0; }
+.date, footer { color: #526475; font-size: .875rem; }
+.intro { font-size: 1.2rem; line-height: 1.65; padding: 1.3rem 1.5rem; background: #edf8fd; border-left: 3px solid #008bbb; }
+section { margin-top: 2.5rem; }
+h2 { font-size: 1.35rem; line-height: 1.4; margin-bottom: .75rem; letter-spacing: -.02em; }
+p { margin: .8rem 0; }
+ul { padding-left: 1.4rem; }
+li { margin: .9rem 0; }
+a { color: var(--primary); text-underline-offset: .2em; overflow-wrap: anywhere; }
+a:focus-visible { outline: 3px solid #008bbb; outline-offset: 4px; }
+footer { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid #d7e1e9; }
+@media print { main { max-width: none; padding: 0; } section { break-inside: avoid; } }
