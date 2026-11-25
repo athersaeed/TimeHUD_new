@@ -57,6 +57,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
     private var brickCatalogLoadedAtElapsedMs = 0L
 
     private val appWindowMemory = AppWindowMemory()
+    private val facebookHomeMemory = FacebookHomeMemory()
     private var rememberedAppWindows = emptyList<ObservedAppWindow>()
 
     private var focusedPackage: String? = null
@@ -121,6 +122,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         focusStartedElapsedMs = 0L
         focusStartedWallMs = 0L
         appWindowMemory.clear()
+        facebookHomeMemory.clear()
         rememberedAppWindows = emptyList()
         if (::overlayController.isInitialized) overlayController.clear()
     }
@@ -135,6 +137,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         }
         flushFocusedUsage()
         appWindowMemory.clear()
+        facebookHomeMemory.clear()
         rememberedAppWindows = emptyList()
         if (::overlayController.isInitialized) overlayController.clear()
         usageExecutor.shutdownNow()
@@ -177,6 +180,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
         AccessibilityForegroundAppStateStore.updatePackage(null)
         updateFocusedPackage(null)
         appWindowMemory.clear()
+        facebookHomeMemory.clear()
         rememberedAppWindows = emptyList()
         if (::overlayController.isInitialized) overlayController.clear()
     }
@@ -210,6 +214,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
             updateFocusedPackage(null)
             overlayController.clear()
             appWindowMemory.clear()
+            facebookHomeMemory.clear()
             rememberedAppWindows = emptyList()
             return
         }
@@ -262,7 +267,16 @@ class TimeHudAccessibilityService : AccessibilityService() {
                     root = root,
                     windowTitle = runCatching { window.title?.toString() }.getOrNull(),
                     packageName = packageName
-                ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics))
+                ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics)).let { inspected ->
+                    if (packageName == FACEBOOK_PACKAGE || packageName == FACEBOOK_LITE_PACKAGE) {
+                        inspected.copy(facebookHomeFeedOpen = facebookHomeMemory.resolve(
+                            windowId = geometry.id,
+                            confirmedHome = inspected.facebookHomeFeedOpen,
+                            tabBarVisible = inspected.facebookTabBarVisible,
+                            feedControlsVisible = inspected.facebookFeedControlsVisible
+                        ))
+                    } else inspected
+                }
                 instagramContentBounds = signals.instagramContentBounds
                 facebookHomeBounds = signals.facebookHomeBounds
                 if (signals.labels.isEmpty() && signals.viewIds.isEmpty()) {
@@ -692,6 +706,9 @@ internal object AppWindowInspector {
         var facebookLogoBottom: Int? = null
         var facebookSearch = false
         var facebookNavigationTop: Int? = null
+        var facebookTabBarVisible = false
+        var facebookStoryTray = false
+        var facebookHidePost = false
         val isFacebook = packageName == FACEBOOK_PACKAGE || packageName == FACEBOOK_LITE_PACKAGE
         val windowBounds = Rect().also(root::getBoundsInScreen)
         traverse(root) { node ->
@@ -711,13 +728,19 @@ internal object AppWindowInspector {
                     selectedLabels += label
                     if (label == "home") facebookHomeSelected = true
                 }
+                if (node.className == "android.app.ActionBar\$Tab") facebookTabBarVisible = true
+                if (node.contentDescription?.toString()?.normalizeSignal() == "story tray") {
+                    facebookStoryTray = true
+                }
                 if (node.isClickable) {
                     val description = node.contentDescription?.toString()?.normalizeSignal()
                     val bounds = Rect().also(node::getBoundsInScreen)
                     if (description == "facebook logo" && node.className == "android.view.View") {
                         facebookLogoBottom = bounds.bottom
                     }
-                    if (description == "search facebook" && node.className == "android.widget.Button") {
+                    if (isFacebookToolbarSearchDescription(description) &&
+                        node.className == "android.widget.Button"
+                    ) {
                         facebookSearch = true
                     }
                     if (node.className == "android.app.ActionBar\$Tab" &&
@@ -727,6 +750,7 @@ internal object AppWindowInspector {
                 if (node.isClickable && node.className == "android.widget.Button") {
                     val description = node.contentDescription?.toString()?.normalizeSignal()
                     if (isFacebookStoryReplyDescription(description)) facebookStoryReply = true
+                    if (description == "hide post") facebookHidePost = true
                 }
             }
             if (packageName == INSTAGRAM_PACKAGE) {
@@ -781,6 +805,8 @@ internal object AppWindowInspector {
             youtubeCommentsPanelOpen = youtubeCommentsPanelOpen,
             facebookStoryViewerOpen = facebookStoryReply,
             facebookHomeFeedOpen = facebookHomeSelected && facebookSearch && facebookLogoBottom != null,
+            facebookTabBarVisible = facebookTabBarVisible,
+            facebookFeedControlsVisible = facebookStoryTray || facebookHidePost,
             facebookHomeBounds = facebookLogoBottom?.let { top ->
                 val bottom = facebookNavigationTop ?: windowBounds.bottom
                 ScreenRect(windowBounds.left, top, windowBounds.right, bottom)
@@ -1116,5 +1142,37 @@ private class BlockingOverlayController(
         const val GRACE_COUNTDOWN_TICK_MS = 1_000L
         const val GRACE_COUNTDOWN_HEIGHT_DP = 48
         const val GRACE_COUNTDOWN_TOP_MARGIN_DP = 18
+    }
+}
+
+// Facebook 588 labels the Home toolbar search button "Search"; older builds use
+// "Search Facebook". Either still requires the selected Home tab and logo.
+internal fun isFacebookToolbarSearchDescription(description: String?): Boolean =
+    description == "search facebook" || description == "search"
+
+/**
+ * Facebook Home is confirmed by its selected tab and toolbar. Scrolling Home hides both
+ * bars, and Groups also hides them while showing the same post controls. So feed controls
+ * (the stories tray or a post's Hide button) keep Home only for the window where Home was
+ * last confirmed. Any visible tab without the Home toolbar (Groups, menu, other tabs) ends it.
+ */
+internal class FacebookHomeMemory {
+    private var windowId: Int? = null
+
+    fun resolve(
+        windowId: Int,
+        confirmedHome: Boolean,
+        tabBarVisible: Boolean,
+        feedControlsVisible: Boolean
+    ): Boolean {
+        when {
+            confirmedHome -> this.windowId = windowId
+            tabBarVisible || this.windowId != windowId -> this.windowId = null
+        }
+        return confirmedHome || (this.windowId == windowId && !tabBarVisible && feedControlsVisible)
+    }
+
+    fun clear() {
+        windowId = null
     }
 }

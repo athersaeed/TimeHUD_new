@@ -12,10 +12,14 @@ import org.junit.Test
 
 class FacebookInspectorTest {
     @Test fun home_requires_selected_native_tab_and_visible_fixed_toolbar() {
+        for (searchLabel in listOf("Search Facebook", "Search")) assertHomeRequiresToolbar(searchLabel)
+    }
+
+    private fun assertHomeRequiresToolbar(searchLabel: String) {
         val markers = listOf(
             Marker("Home, tab 1 of 6", tab = true, selected = true, top = 1200),
             Marker("Facebook logo", view = true, top = 0),
-            Marker("Search Facebook", button = true, top = 0)
+            Marker(searchLabel, button = true, top = 0)
         )
         val signals = inspect(markers)
         assertTrue(signals.facebookHomeFeedOpen)
@@ -32,6 +36,23 @@ class FacebookInspectorTest {
             assertFalse(other.facebookHomeFeedOpen)
             assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE, other))
         }
+    }
+
+    @Test fun story_tray_and_hide_post_are_reported_as_feed_controls_but_not_confirmed_home() {
+        for (markers in listOf(listOf(Marker("Story tray")), listOf(Marker("Hide post", button = true)))) {
+            val signals = inspect(markers)
+            assertTrue(signals.facebookFeedControlsVisible)
+            assertFalse(signals.facebookTabBarVisible)
+            assertFalse(signals.facebookHomeFeedOpen)
+        }
+        listOf(
+            listOf(Marker("Hide post")),
+            listOf(Marker("Hide post", button = true, hidden = true)),
+            listOf(Marker("Story tray", offscreen = true))
+        ).forEach { markers -> assertFalse(inspect(markers).facebookFeedControlsVisible) }
+        val withTabs = inspect(listOf(Marker("For you, 1 of 4", tab = true, selected = true), Marker("Hide post", button = true)))
+        assertTrue(withTabs.facebookTabBarVisible)
+        assertFalse(withTabs.facebookHomeFeedOpen)
     }
 
     @Test fun selected_facebook_tabs_with_position_labels_are_recognized() {

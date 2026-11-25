@@ -148,6 +148,8 @@ internal data class AppUiSignals(
     val youtubeCommentsPanelOpen: Boolean = false,
     val facebookStoryViewerOpen: Boolean = false,
     val facebookHomeFeedOpen: Boolean = false,
+    val facebookTabBarVisible: Boolean = false,
+    val facebookFeedControlsVisible: Boolean = false,
     val facebookHomeBounds: ScreenRect? = null
 ) {
     fun hasLabel(vararg candidates: String): Boolean =

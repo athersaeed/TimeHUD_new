@@ -21,6 +21,39 @@ class AppBlockingTest {
             home.copy(selectedLabels = setOf("marketplace"))))
     }
 
+    @Test fun facebook_toolbar_search_accepts_current_and_legacy_labels_only() {
+        assertTrue(isFacebookToolbarSearchDescription("search"))
+        assertTrue(isFacebookToolbarSearchDescription("search facebook"))
+        listOf(null, "", "search marketplace", "search reels", "searching").forEach {
+            assertFalse(isFacebookToolbarSearchDescription(it))
+        }
+    }
+
+    @Test fun facebook_feed_controls_keep_home_only_after_confirmed_home_in_same_window() {
+        val memory = FacebookHomeMemory()
+        fun step(window: Int = 1, confirmed: Boolean = false, tabs: Boolean = false, feed: Boolean = false) =
+            memory.resolve(window, confirmed, tabs, feed)
+        // Groups/unknown feed with hidden bars and Hide post, never confirmed as Home.
+        assertFalse(step(feed = true))
+        // Confirmed Home, then scrolled with bars hidden.
+        assertTrue(step(confirmed = true, tabs = true, feed = true))
+        assertTrue(step(feed = true))
+        // A frame without feed controls is not blocked but does not forget Home.
+        assertFalse(step())
+        assertTrue(step(feed = true))
+        // Another window does not inherit Home.
+        assertFalse(step(window = 2, feed = true))
+        assertFalse(step(feed = true))
+        // Visible tabs without the Home toolbar (menu, Groups tabs, Profile) end it.
+        assertTrue(step(confirmed = true, tabs = true))
+        assertFalse(step(tabs = true, feed = true))
+        assertFalse(step(feed = true))
+        // clear() forgets Home.
+        assertTrue(step(confirmed = true, tabs = true))
+        memory.clear()
+        assertFalse(step(feed = true))
+    }
+
     @Test fun facebook_home_is_a_shared_opt_in_section() {
         for (pkg in listOf(FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE)) {
             assertTrue(AppSurface.HOME_FEED in supportedSurfacesFor(pkg))
