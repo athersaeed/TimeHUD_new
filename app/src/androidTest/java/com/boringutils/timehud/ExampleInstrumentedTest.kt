@@ -77,14 +77,28 @@ class ExampleInstrumentedTest {
     }
 
     @Test
-    fun active_overlay_has_a_brick_mode_shortcut() {
+    fun active_overlay_has_scrollable_modes_and_a_fixed_close_button() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             val overlay = LayoutInflater.from(context).inflate(R.layout.overlay_active, null)
             val shortcut = overlay.findViewById<android.widget.Button>(R.id.btn_open_brick_mode)
 
             assertNotNull(shortcut)
-            assertEquals(context.getString(R.string.open_brick_mode), shortcut.text.toString())
+            assertEquals(context.getString(R.string.overlay_mode_settings), shortcut.text.toString())
+            val scroller = overlay.findViewById<android.widget.HorizontalScrollView>(R.id.scroll_overlay_modes)
+            val close = overlay.findViewById<android.widget.Button>(R.id.btn_close_active)
+            assertNotNull(scroller)
+            assertEquals(scroller.parent, close.parent)
+            listOf(
+                R.id.btn_overlay_mode_restricted to R.string.restricted_mode_name,
+                R.id.btn_overlay_mode_brick to R.string.strict_brick_mode_name,
+                R.id.btn_overlay_mode_sleep to R.string.sleep_mode_name
+            ).forEach { (id, label) ->
+                val button = scroller.findViewById<android.widget.Button>(id)
+                assertNotNull(button)
+                assertEquals(context.getString(label), button.text.toString())
+                assertTrue(button.isEnabled)
+            }
             assertTrue(shortcut.isEnabled)
         }
     }

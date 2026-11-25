@@ -14,6 +14,15 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
+import com.boringutils.timehud.blocking.AccessibilityServiceStatus
+import com.boringutils.timehud.blocking.BrickModeCatalogLoader
+import com.boringutils.timehud.blocking.BrickModeSchedulePolicy
+import com.boringutils.timehud.blocking.BrickModeSettings
+import com.boringutils.timehud.blocking.UsageRestrictionMode
+import com.boringutils.timehud.blocking.UsageRestrictionPolicy
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,11 +46,19 @@ internal class ActiveOverlayContentController(
     requiresCloseDelay: Boolean,
     private val onClose: () -> Unit,
     private val onOpenBrickMode: () -> Unit,
-    graceControls: AppLimitGraceControls? = null
+    graceControls: AppLimitGraceControls? = null,
+    private val isAppControlEnabled: () -> Boolean = { AccessibilityServiceStatus.isEnabled(context) }
 ) {
     private var activeGoalConfig = GoalSettings.load(context)
     private var activeGoalMode = GoalMode.SHORT_TERM
     private val agendaScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    private var modeConfirmationJob: Job? = null
+    private val modeButtons = mapOf(
+        UsageRestrictionMode.RESTRICTED to R.id.btn_overlay_mode_restricted,
+        UsageRestrictionMode.BRICK to R.id.btn_overlay_mode_brick,
+        UsageRestrictionMode.SLEEP to R.id.btn_overlay_mode_sleep
+    )
 
     private val enableCloseRunnable = Runnable {
         rootView.findViewById<Button>(R.id.btn_close_active)?.let {
@@ -76,10 +93,126 @@ internal class ActiveOverlayContentController(
         }
         rootView.findViewById<Button>(R.id.btn_open_brick_mode)
             ?.setOnClickListener { onOpenBrickMode() }
+        configureModeControls()
         configureGraceControls(graceControls)
         if (requiresCloseDelay) {
             handler.postDelayed(enableCloseRunnable, ACTIVE_CLOSE_DELAY_MS)
         }
+    }
+
+    private fun modeName(mode: UsageRestrictionMode): String = context.getString(
+        when (mode) {
+            UsageRestrictionMode.RESTRICTED -> R.string.restricted_mode_name
+            UsageRestrictionMode.BRICK -> R.string.strict_brick_mode_name
+            UsageRestrictionMode.SLEEP -> R.string.sleep_mode_name
+        }
+    )
+
+    private fun configureModeControls() {
+        modeButtons.forEach { (mode, id) ->
+            rootView.findViewById<Button>(id)?.setOnClickListener { showModeConfirmation(mode) }
+        }
+        rootView.findViewById<Button>(R.id.btn_cancel_overlay_mode)?.setOnClickListener {
+            hideModeConfirmation()
+        }
+        agendaScope.launch {
+            while (isActive) {
+                updateModeSelection()
+                delay(1_000L)
+            }
+        }
+    }
+
+    private fun updateModeSelection() {
+        val nowMs = System.currentTimeMillis()
+        val activeMode = UsageRestrictionPolicy.effectiveMode(
+            BrickModeSettings.load(context, nowMs),
+            BrickModeSchedulePolicy.activeMode(BrickModeSettings.loadSchedules(context), nowMs),
+            nowMs
+        )
+        modeButtons.forEach { (mode, id) ->
+            rootView.findViewById<Button>(id)?.apply {
+                isSelected = mode == activeMode
+                backgroundTintList = ColorStateList.valueOf(context.getColor(
+                    if (isSelected) R.color.graphite_text_primary else R.color.graphite_surface_selected
+                ))
+                setTextColor(context.getColor(
+                    if (isSelected) R.color.graphite_background else R.color.graphite_text_primary
+                ))
+                contentDescription = context.getString(
+                    if (isSelected) R.string.overlay_mode_active else R.string.overlay_mode_choose,
+                    modeName(mode)
+                )
+            }
+        }
+    }
+
+    private fun showModeConfirmation(mode: UsageRestrictionMode) {
+        hideModeConfirmation()
+        val modal = rootView.findViewById<FrameLayout>(R.id.layout_mode_confirmation) ?: return
+        val confirm = modal.findViewById<Button>(R.id.btn_confirm_overlay_mode)
+        val message = modal.findViewById<TextView>(R.id.tv_overlay_mode_message)
+        val name = modeName(mode)
+        modal.visibility = View.VISIBLE
+        (rootView as? ViewGroup)?.getChildAt(0)?.importantForAccessibility =
+            View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        modal.getChildAt(0)?.apply {
+            scrollTo(0, 0)
+            setOnClickListener { }
+        }
+        modal.setOnClickListener { hideModeConfirmation() }
+        modal.findViewById<TextView>(R.id.tv_overlay_mode_title).text =
+            context.getString(R.string.overlay_mode_confirm_title, name)
+        message.text = context.getString(R.string.overlay_mode_loading)
+        confirm.isEnabled = false
+        modeConfirmationJob = agendaScope.launch {
+            val count = withContext(Dispatchers.IO) {
+                runCatching {
+                    val selected = BrickModeSettings.load(context).allowedPackagesFor(mode)
+                    BrickModeCatalogLoader.load(context).apps.count {
+                        !it.alwaysAvailable && it.packageName in selected
+                    }
+                }.getOrNull()
+            }
+            if (count == null) {
+                message.text = context.getString(R.string.overlay_mode_load_failed)
+                confirm.text = context.getString(R.string.overlay_mode_settings)
+                confirm.isEnabled = true
+                confirm.setOnClickListener {
+                    hideModeConfirmation()
+                    onOpenBrickMode()
+                }
+                return@launch
+            }
+            message.text = context.resources.getQuantityString(
+                R.plurals.overlay_mode_confirm_message, count, name, count
+            )
+            confirm.text = context.getString(
+                if (isAppControlEnabled()) R.string.overlay_mode_turn_on else R.string.brick_mode_enable_access
+            )
+            if (!isAppControlEnabled()) {
+                message.append("\n\n" + context.getString(R.string.brick_mode_access_required_message))
+            }
+            confirm.isEnabled = true
+            confirm.setOnClickListener {
+                if (!isAppControlEnabled()) {
+                    hideModeConfirmation()
+                    onOpenBrickMode()
+                } else {
+                    BrickModeSettings.setEnabled(context, mode, true)
+                    hideModeConfirmation()
+                    updateModeSelection()
+                }
+            }
+        }
+    }
+
+    private fun hideModeConfirmation() {
+        modeConfirmationJob?.cancel()
+        modeConfirmationJob = null
+        rootView.findViewById<FrameLayout>(R.id.layout_mode_confirmation)?.visibility = View.GONE
+        (rootView as? ViewGroup)?.getChildAt(0)?.importantForAccessibility =
+            View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
     }
 
     private fun configureGraceControls(controls: AppLimitGraceControls?) {

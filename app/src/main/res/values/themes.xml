@@ -2,4 +2,15 @@
 <resources>
 
     <style name="Theme.TimeHUD" parent="android:Theme.Material.NoActionBar" />
+    <style name="OverlayModeButton" parent="android:style/Widget.Material.Button">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginEnd">6dp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:minWidth">96dp</item>
+        <item name="android:backgroundTint">@color/graphite_surface_selected</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/graphite_text_primary</item>
+        <item name="android:textSize">13sp</item>
+    </style>
 </resources>

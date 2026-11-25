@@ -10,6 +10,10 @@ This document is a source-based technical handoff for the checked-in Android pro
 
 Usage restrictions also includes Sleep Mode with a separate persisted allow-list capped at five user-chosen apps. Protected essential apps remain available and do not count toward the cap. Sleep Mode supports the same manual switch, countdown timer, and weekly/overnight schedules. Overlap priority is Sleep Mode, then Brick Mode, then Restricted Mode. Existing lists and schedules remain unchanged; Sleep Mode starts with an empty chosen-app list. Sleep Mode allows editing its list while active, subject to the five-app cap; Brick Mode retains its existing active-session list lock.
 
+## Overlay mode picker (2026-10-24)
+
+The shared goal check-in and app-blocking overlay replace the Usage restrictions shortcut with a horizontally scrollable Restricted/Brick/Sleep Mode row and a Settings shortcut. Close stays outside the scroller. Tapping a mode opens an in-overlay confirmation showing the installed chosen-app count, with protected essentials explained separately. Cancel changes nothing. Turn on starts the selected manual mode using its saved list, replacing the existing manual session/timer; schedules and separate app limits continue to apply. Without Accessibility App Control, confirmation opens Usage restrictions to enable it instead of activating an unenforced mode. Active mode styling follows effective manual/scheduled state, and the popup scrolls at larger font sizes.
+
 ## 1. App overview
 
 ### Identity and purpose
