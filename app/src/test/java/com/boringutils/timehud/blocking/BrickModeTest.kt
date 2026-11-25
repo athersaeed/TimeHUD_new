@@ -1,5 +1,6 @@
 package com.boringutils.timehud.blocking
 
+import com.boringutils.timehud.DrivingAppPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -466,6 +467,29 @@ class BrickModeTest {
                     appName = appName
                 )
             )
+        }
+    }
+
+    @Test
+    fun navigation_packages_are_always_available_in_both_restriction_modes() {
+        assertEquals(14, DrivingAppPolicy.knownNavigationPackages.size)
+        DrivingAppPolicy.knownNavigationPackages.forEach { packageName ->
+            val protected = EssentialAppPolicy.isAlwaysAvailable(packageName, "Navigation")
+            assertTrue("$packageName should be protected", protected)
+            val navigationCatalog = BrickModeCatalog(
+                listOf(BrickModeApp(packageName, "Navigation", alwaysAvailable = protected))
+            )
+            UsageRestrictionMode.entries.forEach { mode ->
+                assertEquals(
+                    "$packageName should remain available in $mode",
+                    BlockDecision.Allow,
+                    BrickModeDecisionEngine.decide(
+                        config = BrickModeConfig(enabled = true, mode = mode),
+                        packageName = packageName,
+                        catalog = navigationCatalog
+                    )
+                )
+            }
         }
     }
 

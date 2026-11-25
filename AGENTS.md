@@ -265,11 +265,13 @@ Preserve these unless the request explicitly changes them.
 
 - App limits use the same 3:00 AM daily boundary as app usage.
 - Usage Access seeds the current daily total; subsequent enforcement time is accumulated from the focused accessibility window so a visible background app does not gain focused time behind a Samsung pop-up.
-- In-app recognition is intentionally limited to supported English navigation labels, window titles, and view identifiers: YouTube Shorts/search/PiP/comments; Instagram Stories/Reels/Explore; Facebook Stories/Reels/Marketplace; Snapchat Spotlight/Stories; and X Explore/video feed. Unknown sections must not be described as confidently recognized.
-- When an individual Instagram chat is confidently recognized through thread/composer signals, the open-chat exemption takes priority over section and daily-limit blocking. The Messages inbox itself is not exempt when Instagram section blocking is configured.
-- An actively selected/current Instagram Stories, Reels, or Explore surface must beat a stale Messages container left in the accessibility tree; an actively selected Messages tab is classified as either inbox or open thread rather than receiving a blanket exemption.
+- In-app recognition is intentionally limited to supported English navigation labels, window titles, and view identifiers: YouTube Shorts/search/PiP/comments; Instagram Home feed/Stories/Reels/Explore; Facebook Home feed/Stories/Reels/Marketplace; Snapchat Spotlight/Discover posts/Stories; and X Explore/video feed. Unknown sections must not be described as confidently recognized.
+- When Instagram’s inbox or an individual chat is confidently recognized, the Messages exemption takes priority over section and daily-limit blocking, allowing recipient selection. An open story viewer must take priority over its reply composer.
+- An actively selected/current Instagram Stories, Reels, or Explore surface must beat a stale Messages container left in the accessibility tree; an actively selected Messages tab is classified as either inbox or open thread only after checking for an open story viewer. Unselected search-tab identifiers alone do not identify Explore.
+- Native Instagram Home blocking preserves visible bottom navigation so Messages remains reachable. Home requires selected navigation and visible feed content; an unselected Home button alone is insufficient.
 - Blocking overlays cover only the target window's exposed regions; higher-layer pop-up/system windows must remain visible and interactive.
 - Disabling or revoking the accessibility service must remove service-owned blocking overlays.
+- Screen-off or a locked keyguard must remove app-control shields and grace countdown views and clear remembered windows; unlocking requires fresh window evaluation before blocking resumes.
 
 ### Usage restriction behavior
 

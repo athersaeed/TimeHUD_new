@@ -1,6 +1,7 @@
 package com.boringutils.timehud.blocking
 
 import android.view.View
+import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -14,6 +15,83 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AppWindowInspectorTest {
+    @Test
+    fun youtube_visible_comments_and_replies_headers_identify_open_panel() {
+        listOf("Comments", "Replies").forEach { title ->
+            val signals = inspectYouTubePanel(title)
+            assertEquals(true, signals.youtubeCommentsPanelOpen)
+            assertEquals(AppSurface.COMMENTS, AppSurfaceClassifier.classify(YOUTUBE_PACKAGE, signals))
+        }
+    }
+
+    @Test
+    fun youtube_preview_and_other_panel_titles_remain_available() {
+        listOf(inspectYouTubePanel("Comments", panelHeader = false),
+            inspectYouTubePanel("Description"), inspectYouTubePanel("Comments about Kotlin"))
+            .forEach { signals ->
+                assertFalse(signals.youtubeCommentsPanelOpen)
+                assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(YOUTUBE_PACKAGE, signals))
+            }
+    }
+
+    @Test
+    fun youtube_hidden_and_offscreen_comments_headers_do_not_block_playback() {
+        listOf(inspectYouTubePanel("Comments", hidden = true),
+            inspectYouTubePanel("Comments", offscreen = true)).forEach { signals ->
+            assertFalse(signals.youtubeCommentsPanelOpen)
+            assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(YOUTUBE_PACKAGE, signals))
+        }
+    }
+
+    private fun inspectYouTubePanel(
+        title: String,
+        panelHeader: Boolean = true,
+        hidden: Boolean = false,
+        offscreen: Boolean = false
+    ): AppUiSignals {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        return ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                fun View.marker(id: String) {
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    accessibilityDelegate = object : View.AccessibilityDelegate() {
+                        override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                            super.onInitializeAccessibilityNodeInfo(host, info)
+                            info.viewIdResourceName = "$YOUTUBE_PACKAGE:id/$id"
+                        }
+                    }
+                }
+                val screen = FrameLayout(activity)
+                val header = FrameLayout(activity).apply {
+                    marker(if (panelHeader) "panel_header" else "video_title")
+                    if (hidden) visibility = View.INVISIBLE
+                }
+                // Match the real nested title path; neither the preview's label nor
+                // a generic panel by itself should qualify.
+                var container = header
+                repeat(4) {
+                    val child = FrameLayout(activity).apply {
+                        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    }
+                    container.addView(child, FrameLayout.LayoutParams(500, 150))
+                    container = child
+                }
+                container.addView(TextView(activity).apply {
+                    text = title
+                    marker("modern_title")
+                }, FrameLayout.LayoutParams(500, 120))
+                screen.addView(header, FrameLayout.LayoutParams(500, 150).apply {
+                    topMargin = if (offscreen) 10000 else 200
+                })
+                activity.setContentView(screen)
+            }
+            instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.waitForIdle(100L, 5000L)
+            AppWindowInspector.inspect(checkNotNull(instrumentation.uiAutomation.rootInActiveWindow),
+                null, YOUTUBE_PACKAGE)
+        }
+    }
+
     @Test
     fun x_explore_description_inside_selected_tab_is_recognized() {
         val signals = inspectTab(selected = true, navigationDescription = "Explore")
@@ -38,6 +116,100 @@ class AppWindowInspectorTest {
             packageName = INSTAGRAM_PACKAGE
         )
         assertFalse(otherSignals.hasSelectedLabel("explore"))
+    }
+
+    @Test
+    fun instagram_inbox_ignores_hidden_story_navigation() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val screen = FrameLayout(activity)
+                screen.addView(TextView(activity).apply {
+                    contentDescription = "Message"
+                    isSelected = true
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                }, FrameLayout.LayoutParams(300, 150))
+                screen.addView(TextView(activity).apply {
+                    contentDescription = "Story by"
+                    visibility = View.INVISIBLE
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                }, FrameLayout.LayoutParams(300, 150))
+                activity.setContentView(screen)
+            }
+            instrumentation.waitForIdleSync()
+            val automation = instrumentation.uiAutomation
+            automation.waitForIdle(100L, 5_000L)
+            val signals = AppWindowInspector.inspect(
+                checkNotNull(automation.rootInActiveWindow), null, INSTAGRAM_PACKAGE)
+            assertFalse(signals.hasLabel("story by"))
+            val surface = AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE, signals)
+            assertEquals(AppSurface.MESSAGE_INBOX, surface)
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+                AppBlockRule(INSTAGRAM_PACKAGE, blockedSurfaces = setOf(AppSurface.STORIES)),
+                0L, surface))
+        }
+    }
+
+    @Test
+    fun instagram_selected_home_icon_identifies_feed_and_preserves_bottom_navigation() {
+        val signals = inspectInstagramNavigation("feed_tab", selected = true)
+        assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE, signals))
+        org.junit.Assert.assertTrue(checkNotNull(signals.instagramContentBounds).height > 0)
+        assertEquals(setOf("home"), signals.selectedLabels)
+    }
+
+    @Test
+    fun instagram_unselected_or_hidden_home_icon_does_not_identify_feed() {
+        listOf(inspectInstagramNavigation("feed_tab", selected = false),
+            inspectInstagramNavigation("feed_tab", selected = true, hidden = true)).forEach { signals ->
+            assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE, signals))
+        }
+    }
+
+    @Test
+    fun instagram_selected_messages_icon_beats_retained_home_header() {
+        val signals = inspectInstagramNavigation("direct_tab", selected = true)
+        assertEquals(AppSurface.MESSAGE_INBOX, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE, signals))
+    }
+
+    private fun inspectInstagramNavigation(tabId: String, selected: Boolean, hidden: Boolean = false): AppUiSignals {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        lateinit var navigationBar: View
+        return ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                fun View.marker(id: String) {
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    accessibilityDelegate = object : View.AccessibilityDelegate() {
+                        override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+                            super.onInitializeAccessibilityNodeInfo(host, info)
+                            info.viewIdResourceName = "$INSTAGRAM_PACKAGE:id/$id"
+                        }
+                    }
+                }
+                val screen = FrameLayout(activity)
+                screen.addView(TextView(activity).apply { marker("main_feed_action_bar") },
+                    FrameLayout.LayoutParams(500, 120))
+                val bar = FrameLayout(activity).apply { marker("tab_bar") }
+                navigationBar = bar
+                val tab = FrameLayout(activity).apply { marker(tabId) }
+                tab.addView(TextView(activity).apply {
+                    marker("tab_icon")
+                    isSelected = selected
+                    if (hidden) visibility = View.INVISIBLE
+                }, FrameLayout.LayoutParams(100, 100))
+                bar.addView(tab, FrameLayout.LayoutParams(200, 120))
+                screen.addView(bar, FrameLayout.LayoutParams(500, 120).apply { topMargin = 400 })
+                activity.setContentView(screen)
+            }
+            instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.waitForIdle(100L, 5000L)
+            val root = checkNotNull(instrumentation.uiAutomation.rootInActiveWindow)
+            val location = IntArray(2)
+            scenario.onActivity { navigationBar.getLocationOnScreen(location) }
+            AppWindowInspector.inspect(root, null, INSTAGRAM_PACKAGE).also { signals ->
+                assertEquals(location[1], checkNotNull(signals.instagramContentBounds).bottom)
+            }
+        }
     }
 
     private fun inspectTab(

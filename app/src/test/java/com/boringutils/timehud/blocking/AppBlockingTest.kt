@@ -6,6 +6,82 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppBlockingTest {
+    @Test fun facebook_home_requires_verified_toolbar_and_keeps_section_priority() {
+        val home = AppUiSignals(facebookHomeFeedOpen = true, selectedLabels = setOf("home"))
+        assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE, home))
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            AppUiSignals(selectedLabels = setOf("home"), labels = setOf("facebook logo", "search facebook"))))
+        assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            home.copy(viewIds = setOf("reels_feed", "marketplace_feed"))))
+        assertEquals(AppSurface.STORIES, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            home.copy(facebookStoryViewerOpen = true)))
+        assertEquals(AppSurface.REELS, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            home.copy(selectedLabels = setOf("reels"))))
+        assertEquals(AppSurface.MARKETPLACE, AppSurfaceClassifier.classify(FACEBOOK_PACKAGE,
+            home.copy(selectedLabels = setOf("marketplace"))))
+    }
+
+    @Test fun facebook_home_is_a_shared_opt_in_section() {
+        for (pkg in listOf(FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE)) {
+            assertTrue(AppSurface.HOME_FEED in supportedSurfacesFor(pkg))
+            assertFalse(AppSurface.HOME_FEED in AppBlockRule(pkg).blockedSurfaces)
+        }
+        val rule = AppBlockRule(FACEBOOK_PACKAGE, blockedSurfaces = setOf(AppSurface.HOME_FEED), browserFacebook = true)
+        assertEquals(BlockDecision.Block(BlockReason.HOME_FEED),
+            AppBlockDecisionEngine.decide(rule, 0L, AppSurface.HOME_FEED))
+        assertEquals(BlockDecision.Block(BlockReason.HOME_FEED),
+            BrowserFacebookClassifier.decision(AppSurface.HOME_FEED, rule.blockedSurfaces))
+        listOf(AppSurface.REELS, AppSurface.STORIES, AppSurface.MARKETPLACE, AppSurface.OTHER).forEach {
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(rule, 0L, it))
+            assertEquals(BlockDecision.Allow, BrowserFacebookClassifier.decision(it, rule.blockedSurfaces))
+        }
+    }
+
+    @Test
+    fun instagram_home_requires_selected_navigation_and_visible_feed_content() {
+        listOf(setOf("main_feed_action_bar"), setOf("reels_tray_container"),
+            setOf("sticky_header_list", "row_feed_button_like")).forEach { ids ->
+            assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+                AppUiSignals(selectedLabels = setOf("home"), viewIds = ids)))
+            assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+                AppUiSignals(labels = setOf("home"), viewIds = ids + "feed_tab")))
+        }
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(selectedLabels = setOf("home"), viewIds = setOf("profile_header"))))
+    }
+
+    @Test
+    fun instagram_active_sections_beat_retained_home_feed_markers() {
+        val retained = setOf("main_feed_action_bar", "reels_tray_container", "feed_tab")
+        mapOf("messages" to AppSurface.MESSAGE_INBOX, "reels" to AppSurface.REELS,
+            "explore" to AppSurface.EXPLORE).forEach { (selected, expected) ->
+            assertEquals(expected, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+                AppUiSignals(selectedLabels = setOf(selected), viewIds = retained)))
+        }
+        assertEquals(AppSurface.STORIES, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(selectedLabels = setOf("home"),
+                viewIds = retained + "reel_viewer_root")))
+        assertEquals(AppSurface.HOME_FEED, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(selectedLabels = setOf("home"),
+                viewIds = retained + setOf("direct_inbox", "clips_viewer", "explore_grid"))))
+    }
+
+    @Test
+    fun home_feed_rule_blocks_only_home_and_preserves_message_exemption() {
+        val homeRule = rule(INSTAGRAM_PACKAGE, blockedSurfaces = setOf(AppSurface.HOME_FEED))
+        assertTrue(homeRule.isConfigured)
+        assertEquals(BlockDecision.Block(BlockReason.HOME_FEED),
+            AppBlockDecisionEngine.decide(homeRule, 0L, AppSurface.HOME_FEED))
+        listOf(AppSurface.MESSAGE_INBOX, AppSurface.MESSAGE_THREAD, AppSurface.REELS,
+            AppSurface.STORIES, AppSurface.EXPLORE, AppSurface.OTHER).forEach { surface ->
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(homeRule, 0L, surface))
+        }
+        assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+            homeRule.copy(blockedSurfaces = emptySet()), 0L, AppSurface.HOME_FEED))
+        assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+            homeRule.copy(dailyLimitMinutes = 1), 120_000L, AppSurface.MESSAGE_INBOX))
+    }
+
     @Test
     fun messages_exemption_wins_after_daily_limit() {
         val decision = AppBlockDecisionEngine.decide(
@@ -157,15 +233,15 @@ class AppBlockingTest {
             supportedSurfacesFor(YOUTUBE_PACKAGE)
         )
         assertEquals(
-            listOf(AppSurface.STORIES, AppSurface.REELS, AppSurface.EXPLORE),
+            listOf(AppSurface.HOME_FEED, AppSurface.STORIES, AppSurface.REELS, AppSurface.EXPLORE),
             supportedSurfacesFor(INSTAGRAM_PACKAGE)
         )
         assertEquals(
-            listOf(AppSurface.STORIES, AppSurface.REELS, AppSurface.MARKETPLACE),
+            listOf(AppSurface.HOME_FEED, AppSurface.STORIES, AppSurface.REELS, AppSurface.MARKETPLACE),
             supportedSurfacesFor(FACEBOOK_PACKAGE)
         )
         assertEquals(
-            listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES),
+            listOf(AppSurface.SPOTLIGHT, AppSurface.DISCOVER, AppSurface.STORIES),
             supportedSurfacesFor(SNAPCHAT_PACKAGE)
         )
         assertEquals(
@@ -192,6 +268,7 @@ class AppBlockingTest {
             Triple(FACEBOOK_PACKAGE, signals(viewId = "reels_feed"), AppSurface.REELS),
             Triple(FACEBOOK_PACKAGE, signals(selected = "marketplace"), AppSurface.MARKETPLACE),
             Triple(SNAPCHAT_PACKAGE, signals(selected = "spotlight"), AppSurface.SPOTLIGHT),
+            Triple(SNAPCHAT_PACKAGE, signals(viewId = "discover_viewer"), AppSurface.DISCOVER),
             Triple(SNAPCHAT_PACKAGE, signals(viewId = "stories_feed"), AppSurface.STORIES),
             Triple(X_PACKAGE, signals(viewId = "explore_timeline"), AppSurface.EXPLORE)
         )
@@ -203,6 +280,149 @@ class AppBlockingTest {
                 AppSurfaceClassifier.classify(packageName, signals)
             )
         }
+    }
+
+    @Test
+    fun youtube_open_comments_header_blocks_but_preview_text_does_not() {
+        val rule = AppBlockRule(YOUTUBE_PACKAGE, blockedSurfaces = setOf(AppSurface.COMMENTS))
+        val openPanel = AppSurfaceClassifier.classify(YOUTUBE_PACKAGE,
+            AppUiSignals(youtubeCommentsPanelOpen = true))
+        assertEquals(AppSurface.COMMENTS, openPanel)
+        assertEquals(BlockDecision.Block(BlockReason.COMMENTS),
+            AppBlockDecisionEngine.decide(rule, 0L, openPanel))
+        val preview = AppSurfaceClassifier.classify(YOUTUBE_PACKAGE,
+            AppUiSignals(labels = setOf("comments", "replies"),
+                viewIds = setOf("com.google.android.youtube:id/modern_title")))
+        assertEquals(AppSurface.OTHER, preview)
+        assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(rule, 0L, preview))
+    }
+
+    @Test
+    fun snapchat_section_rules_block_independently_and_leave_chat_and_camera_available() {
+        val sections = listOf(
+            Triple("spotlight", AppSurface.SPOTLIGHT, BlockReason.SPOTLIGHT),
+            Triple("discover", AppSurface.DISCOVER, BlockReason.DISCOVER),
+            Triple("stories", AppSurface.STORIES, BlockReason.STORIES)
+        )
+        sections.forEach { (_, blockedSurface, reason) ->
+            val rule = rule(SNAPCHAT_PACKAGE, blockedSurfaces = setOf(blockedSurface))
+            sections.forEach { (label, surface, _) ->
+                val detected = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE,
+                    if (surface == AppSurface.DISCOVER) signals(viewId = "discover_viewer")
+                    else signals(selected = label)
+                )
+                assertEquals(surface, detected)
+                assertEquals(
+                    if (surface == blockedSurface) BlockDecision.Block(reason) else BlockDecision.Allow,
+                    AppBlockDecisionEngine.decide(rule, 0L, detected)
+                )
+            }
+            listOf("chat", "camera").forEach { label ->
+                val detected = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(selected = label))
+                assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(rule, 0L, detected))
+            }
+        }
+    }
+
+    @Test
+    fun snapchat_discover_navigation_does_not_block_the_browsing_page() {
+        assertEquals(
+            AppSurface.OTHER,
+            AppSurfaceClassifier.classify(
+                SNAPCHAT_PACKAGE, signals(selected = "discover", viewId = "discover_feed")
+            )
+        )
+        assertEquals(
+            AppSurface.SPOTLIGHT,
+            AppSurfaceClassifier.classify(
+                SNAPCHAT_PACKAGE, signals(selected = "spotlight", viewId = "discover_feed")
+            )
+        )
+    }
+
+    @Test
+    fun snapchat_unselected_navigation_and_plain_labels_do_not_block_chat() {
+        assertEquals(
+            AppSurface.OTHER,
+            AppSurfaceClassifier.classify(
+                SNAPCHAT_PACKAGE,
+                AppUiSignals(
+                    labels = setOf("spotlight", "discover", "stories"),
+                    viewIds = setOf("spotlight_tab", "discover_tab", "stories_tab")
+                )
+            )
+        )
+    }
+
+    @Test
+    fun snapchat_discover_and_spotlight_content_containers_are_recognized() {
+        listOf("discover_viewer", "discover_player").forEach { id ->
+            assertEquals(
+                AppSurface.DISCOVER,
+                AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(viewId = id))
+            )
+        }
+        assertEquals(
+            AppSurface.SPOTLIGHT,
+            AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(viewId = "spotlight_feed"))
+        )
+    }
+
+    @Test
+    fun snapchat_discover_grid_remains_available_until_a_post_opens() {
+        listOf("discover_feed", "discover_page", "df_large_story").forEach { id ->
+            val surface = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(viewId = id))
+            assertEquals(AppSurface.OTHER, surface)
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+                rule(SNAPCHAT_PACKAGE, blockedSurfaces = setOf(AppSurface.DISCOVER)), 0L, surface
+            ))
+        }
+        val viewer = AppUiSignals(viewIds = setOf("opera_viewer", "context_chrome_header/chrome_subscribe_button", "discover_feed"))
+        val opened = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, viewer)
+        assertEquals(AppSurface.DISCOVER, opened)
+        assertEquals(BlockDecision.Block(BlockReason.DISCOVER), AppBlockDecisionEngine.decide(
+            rule(SNAPCHAT_PACKAGE, blockedSurfaces = setOf(AppSurface.DISCOVER)), 0L, opened
+        ))
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals(viewId = "opera_viewer")))
+    }
+
+    @Test
+    fun snapchat_friends_navigation_and_reply_controls_override_shared_publisher_controls() {
+        val publicViewer = AppUiSignals(viewIds = setOf("opera_viewer", "context_chrome_header/chrome_subscribe_button"))
+        val variants = listOf(
+            publicViewer.copy(snapchatFriendStoryNavigation = true),
+            publicViewer.copy(editableLabels = setOf("send a chat")),
+            publicViewer.copy(viewIds = publicViewer.viewIds + "story_reply")
+        )
+        variants.forEach { signals ->
+            val surface = AppSurfaceClassifier.classify(SNAPCHAT_PACKAGE, signals)
+            assertEquals(AppSurface.STORIES, surface)
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+                rule(SNAPCHAT_PACKAGE, blockedSurfaces = setOf(AppSurface.DISCOVER)), 0L, surface
+            ))
+        }
+    }
+
+    @Test
+    fun snapchat_friends_marker_is_scoped_to_navigation_subtitle() {
+        assertTrue(isSnapchatFriendStoryNavigation("chrome_subtitle", "Example from Quick Add"))
+        assertTrue(isSnapchatFriendStoryNavigation("$SNAPCHAT_PACKAGE:id/chrome_subtitle", "Example FROM QUICK ADD"))
+        assertFalse(isSnapchatFriendStoryNavigation("post_caption", "Example from Quick Add"))
+        assertFalse(isSnapchatFriendStoryNavigation("chrome_subtitle", "Example"))
+        assertFalse(isSnapchatFriendStoryNavigation("chrome_subtitle", null))
+    }
+
+    @Test
+    fun old_snapchat_stories_rules_retain_discover_coverage_without_changing_spotlight() {
+        assertEquals(
+            setOf(AppSurface.STORIES, AppSurface.DISCOVER),
+            migrateSnapchatDiscoverSurfaces(setOf(AppSurface.STORIES))
+        )
+        assertEquals(
+            setOf(AppSurface.SPOTLIGHT),
+            migrateSnapchatDiscoverSurfaces(setOf(AppSurface.SPOTLIGHT))
+        )
+        assertEquals(emptySet<AppSurface>(), migrateSnapchatDiscoverSurfaces(emptySet()))
     }
 
     @Test
@@ -283,6 +503,19 @@ class AppBlockingTest {
     }
 
     @Test
+    fun facebook_story_controls_take_priority_and_obey_the_independent_story_rule() {
+        for (packageName in listOf(FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE)) {
+            val surface = AppSurfaceClassifier.classify(packageName,
+                AppUiSignals(facebookStoryViewerOpen = true, selectedLabels = setOf("reels")))
+            assertEquals(AppSurface.STORIES, surface)
+            assertEquals(BlockDecision.Block(BlockReason.STORIES), AppBlockDecisionEngine.decide(
+                AppBlockRule(packageName, blockedSurfaces = setOf(AppSurface.STORIES)), 0L, surface))
+            assertEquals(BlockDecision.Allow, AppBlockDecisionEngine.decide(
+                AppBlockRule(packageName, blockedSurfaces = setOf(AppSurface.REELS)), 0L, surface))
+        }
+    }
+
+    @Test
     fun open_instagram_chat_has_priority_over_stale_reels_signals() {
         val surface = AppSurfaceClassifier.classify(
             INSTAGRAM_PACKAGE,
@@ -296,7 +529,7 @@ class AppBlockingTest {
     }
 
     @Test
-    fun instagram_inbox_is_not_treated_as_an_open_chat() {
+    fun instagram_inbox_remains_available_with_section_blocking() {
         val surface = AppSurfaceClassifier.classify(
             INSTAGRAM_PACKAGE,
             signals(selected = "messages", viewId = "direct_inbox")
@@ -304,7 +537,7 @@ class AppBlockingTest {
 
         assertEquals(AppSurface.MESSAGE_INBOX, surface)
         assertEquals(
-            BlockDecision.Block(BlockReason.MESSAGE_INBOX),
+            BlockDecision.Allow,
             AppBlockDecisionEngine.decide(
                 rule = rule(
                     packageName = INSTAGRAM_PACKAGE,
@@ -314,6 +547,41 @@ class AppBlockingTest {
                 surface = surface
             )
         )
+    }
+
+    @Test
+    fun instagram_inbox_exemption_applies_after_daily_limit_and_can_be_disabled() {
+        val rule = rule(INSTAGRAM_PACKAGE, dailyLimitMinutes = 10)
+        assertEquals(BlockDecision.Allow,
+            AppBlockDecisionEngine.decide(rule, 11 * 60_000L, AppSurface.MESSAGE_INBOX))
+        assertEquals(BlockDecision.Block(BlockReason.DAILY_LIMIT),
+            AppBlockDecisionEngine.decide(rule.copy(allowMessages = false),
+                11 * 60_000L, AppSurface.MESSAGE_INBOX))
+    }
+
+    @Test
+    fun instagram_story_reply_composer_does_not_exempt_the_story() {
+        listOf("story_viewer", "stories_viewer", "com.instagram.android:id/reel_viewer_root")
+            .forEach { viewerId ->
+                val surface = AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE, AppUiSignals(
+                    viewIds = setOf(viewerId, "message_composer_container", "direct_inbox"),
+                    selectedLabels = setOf("messages"),
+                    editableLabels = setOf("send message")
+                ))
+                assertEquals(AppSurface.STORIES, surface)
+                assertEquals(BlockDecision.Block(BlockReason.STORIES),
+                    AppBlockDecisionEngine.decide(rule(INSTAGRAM_PACKAGE,
+                        blockedSurfaces = setOf(AppSurface.STORIES)), 0L, surface))
+            }
+    }
+
+    @Test
+    fun instagram_story_tray_does_not_block_home_or_inbox() {
+        assertEquals(AppSurface.OTHER, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(viewIds = setOf("reels_tray_container", "reel_empty_badge", "search_tab", "explore_tab"))))
+        assertEquals(AppSurface.MESSAGE_INBOX, AppSurfaceClassifier.classify(INSTAGRAM_PACKAGE,
+            AppUiSignals(viewIds = setOf("direct_inbox_action_bar",
+                "inbox_refreshable_thread_list_recyclerview", "search_tab", "explore_tab"))))
     }
 
     @Test

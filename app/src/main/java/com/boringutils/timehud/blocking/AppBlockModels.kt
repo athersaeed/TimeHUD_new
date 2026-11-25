@@ -11,10 +11,13 @@ internal data class AppBlockRule(
     val packageName: String,
     val dailyLimitMinutes: Int? = null,
     val blockedSurfaces: Set<AppSurface> = emptySet(),
-    val allowMessages: Boolean = true
+    val allowMessages: Boolean = true,
+    val browserInstagramTest: Boolean = false,
+    val browserFacebook: Boolean = false
 ) {
     val isConfigured: Boolean
-        get() = dailyLimitMinutes != null || blockedSurfaces.isNotEmpty()
+        get() = dailyLimitMinutes != null || blockedSurfaces.isNotEmpty() || browserInstagramTest ||
+                (packageName == FACEBOOK_PACKAGE && browserFacebook)
 }
 
 internal enum class AppSurface {
@@ -23,6 +26,7 @@ internal enum class AppSurface {
     SHORTS,
     VIDEO_SEARCH,
     VIDEO_FEED,
+    HOME_FEED,
     PICTURE_IN_PICTURE,
     COMMENTS,
     REELS,
@@ -30,6 +34,7 @@ internal enum class AppSurface {
     EXPLORE,
     MARKETPLACE,
     SPOTLIGHT,
+    DISCOVER,
     OTHER,
     UNKNOWN
 }
@@ -42,19 +47,24 @@ internal fun supportedSurfacesFor(packageName: String): List<AppSurface> = when 
         AppSurface.COMMENTS
     )
     INSTAGRAM_PACKAGE -> listOf(
+        AppSurface.HOME_FEED,
         AppSurface.STORIES,
         AppSurface.REELS,
         AppSurface.EXPLORE
     )
     FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE -> listOf(
+        AppSurface.HOME_FEED,
         AppSurface.STORIES,
         AppSurface.REELS,
         AppSurface.MARKETPLACE
     )
-    SNAPCHAT_PACKAGE -> listOf(AppSurface.SPOTLIGHT, AppSurface.STORIES)
+    SNAPCHAT_PACKAGE -> listOf(AppSurface.SPOTLIGHT, AppSurface.DISCOVER, AppSurface.STORIES)
     X_PACKAGE -> listOf(AppSurface.EXPLORE, AppSurface.VIDEO_FEED)
     else -> emptyList()
 }
+
+internal fun migrateSnapchatDiscoverSurfaces(surfaces: Set<AppSurface>): Set<AppSurface> =
+    if (AppSurface.STORIES in surfaces) surfaces + AppSurface.DISCOVER else surfaces
 
 internal enum class BlockReason {
     BRICK_MODE,
@@ -63,13 +73,15 @@ internal enum class BlockReason {
     SHORTS,
     VIDEO_SEARCH,
     VIDEO_FEED,
+    HOME_FEED,
     PICTURE_IN_PICTURE,
     COMMENTS,
     REELS,
     STORIES,
     EXPLORE,
     MARKETPLACE,
-    SPOTLIGHT
+    SPOTLIGHT,
+    DISCOVER
 }
 
 internal sealed interface BlockDecision {
@@ -84,15 +96,12 @@ internal object AppBlockDecisionEngine {
         focusedUsageMs: Long,
         surface: AppSurface
     ): BlockDecision {
-        if (rule.allowMessages && surface == AppSurface.MESSAGE_THREAD) {
-            return BlockDecision.Allow
-        }
-        if (rule.packageName == INSTAGRAM_PACKAGE &&
-            rule.allowMessages &&
-            surface == AppSurface.MESSAGE_INBOX &&
-            rule.blockedSurfaces.isNotEmpty()
+        if (rule.allowMessages && (
+            surface == AppSurface.MESSAGE_THREAD ||
+                (rule.packageName == INSTAGRAM_PACKAGE && surface == AppSurface.MESSAGE_INBOX)
+            )
         ) {
-            return BlockDecision.Block(BlockReason.MESSAGE_INBOX)
+            return BlockDecision.Allow
         }
         if (surface in rule.blockedSurfaces) {
             return BlockDecision.Block(surface.blockReason())
@@ -110,6 +119,7 @@ internal object AppBlockDecisionEngine {
         AppSurface.SHORTS -> BlockReason.SHORTS
         AppSurface.VIDEO_SEARCH -> BlockReason.VIDEO_SEARCH
         AppSurface.VIDEO_FEED -> BlockReason.VIDEO_FEED
+        AppSurface.HOME_FEED -> BlockReason.HOME_FEED
         AppSurface.PICTURE_IN_PICTURE -> BlockReason.PICTURE_IN_PICTURE
         AppSurface.COMMENTS -> BlockReason.COMMENTS
         AppSurface.REELS -> BlockReason.REELS
@@ -117,6 +127,7 @@ internal object AppBlockDecisionEngine {
         AppSurface.EXPLORE -> BlockReason.EXPLORE
         AppSurface.MARKETPLACE -> BlockReason.MARKETPLACE
         AppSurface.SPOTLIGHT -> BlockReason.SPOTLIGHT
+        AppSurface.DISCOVER -> BlockReason.DISCOVER
         AppSurface.MESSAGE_INBOX,
         AppSurface.MESSAGE_THREAD,
         AppSurface.OTHER,
@@ -131,7 +142,13 @@ internal data class AppUiSignals(
     val editableLabels: Set<String> = emptySet(),
     val viewIds: Set<String> = emptySet(),
     val windowTitle: String = "",
-    val isCompactWindow: Boolean = false
+    val snapchatFriendStoryNavigation: Boolean = false,
+    val isCompactWindow: Boolean = false,
+    val instagramContentBounds: ScreenRect? = null,
+    val youtubeCommentsPanelOpen: Boolean = false,
+    val facebookStoryViewerOpen: Boolean = false,
+    val facebookHomeFeedOpen: Boolean = false,
+    val facebookHomeBounds: ScreenRect? = null
 ) {
     fun hasLabel(vararg candidates: String): Boolean =
         candidates.any { candidate -> labels.any { it == candidate || it.startsWith("$candidate ") } }
@@ -152,6 +169,12 @@ internal data class AppUiSignals(
         fragments.any { it in windowTitle }
 }
 
+internal fun isSnapchatFriendStoryNavigation(viewId: String?, text: CharSequence?): Boolean {
+    if (viewId != "chrome_subtitle" && viewId != "$SNAPCHAT_PACKAGE:id/chrome_subtitle") return false
+    // Read only the fixed navigation marker; never retain the surrounding identity.
+    return text?.toString()?.contains("from quick add", ignoreCase = true) == true
+}
+
 internal object AppSurfaceClassifier {
     fun classify(packageName: String, signals: AppUiSignals): AppSurface = when (packageName) {
         YOUTUBE_PACKAGE -> classifyYouTube(signals)
@@ -168,7 +191,8 @@ internal object AppSurfaceClassifier {
             signals.isCompactWindow -> {
             AppSurface.PICTURE_IN_PICTURE
         }
-        signals.hasViewId("comments_panel", "comments_sheet", "comment_replies") ||
+        signals.youtubeCommentsPanelOpen ||
+            signals.hasViewId("comments_panel", "comments_sheet", "comment_replies") ||
             signals.hasSelectedLabel("comments") -> AppSurface.COMMENTS
         signals.hasViewId("search_results", "search_query", "search_edit_text") ||
             signals.hasFocusedLabel("search", "search youtube") -> AppSurface.VIDEO_SEARCH
@@ -188,16 +212,25 @@ internal object AppSurfaceClassifier {
             "composer_input",
             "message_edit_text"
         ) || signals.hasEditableLabel("message", "write a message", "send message")
-        val messagesSelected = signals.hasSelectedLabel("messages", "direct", "inbox")
+        val messagesSelected = signals.hasSelectedLabel("message", "messages", "direct", "inbox")
 
         return when {
+            // Instagram calls its Stories viewer "reel_viewer" and includes a
+            // message composer for story replies. Identify it before Messages.
+            signals.hasViewId("story_viewer", "stories_viewer", "reel_viewer_root") ||
+                signals.hasLabel("story by") -> AppSurface.STORIES
             signals.hasSelectedLabel("reels", "reels tab") -> AppSurface.REELS
             signals.hasSelectedLabel("explore", "search and explore") -> AppSurface.EXPLORE
             messagesSelected && messageThreadOpen -> AppSurface.MESSAGE_THREAD
             messagesSelected -> AppSurface.MESSAGE_INBOX
-            signals.hasViewId("story_viewer") || signals.hasLabel("story by") -> AppSurface.STORIES
+            // The Home icon is selected even when its tab container is not.
+            // Require feed content as well: profiles/posts can retain Home navigation.
+            signals.hasSelectedLabel("home") && (
+                signals.hasViewId("main_feed_action_bar", "reels_tray_container") ||
+                    (signals.hasViewId("sticky_header_list") && signals.hasViewId("row_feed_"))
+                ) -> AppSurface.HOME_FEED
             signals.hasViewId("clips_viewer", "reels_viewer") -> AppSurface.REELS
-            signals.hasViewId("explore_grid", "explore_tab", "search_tab") -> AppSurface.EXPLORE
+            signals.hasViewId("explore_grid", "explore_feed") -> AppSurface.EXPLORE
             messageThreadOpen -> AppSurface.MESSAGE_THREAD
             signals.hasViewId("direct_inbox", "inbox_container", "thread_list") -> {
                 AppSurface.MESSAGE_INBOX
@@ -207,22 +240,39 @@ internal object AppSurfaceClassifier {
     }
 
     private fun classifyFacebook(signals: AppUiSignals): AppSurface = when {
-        signals.hasViewId("story_viewer", "stories_viewer") ||
+        signals.facebookStoryViewerOpen || signals.hasViewId("story_viewer", "stories_viewer") ||
             signals.hasLabel("story by") -> AppSurface.STORIES
-        signals.hasSelectedLabel("reels") ||
-            signals.hasViewId("reels_tab", "reels_feed", "reels_viewer") ||
+        signals.hasSelectedLabel("reels") -> AppSurface.REELS
+        signals.hasSelectedLabel("marketplace") -> AppSurface.MARKETPLACE
+        // The inspector requires the real selected Home tab and the Home toolbar.
+        // A profile/post may retain Home navigation without that toolbar.
+        signals.facebookHomeFeedOpen -> AppSurface.HOME_FEED
+        signals.hasViewId("reels_tab", "reels_feed", "reels_viewer") ||
             (signals.hasLabel("add a comment", "add a comment...") &&
                 signals.hasLabel("original audio", "follow")) -> AppSurface.REELS
-        signals.hasSelectedLabel("marketplace") ||
-            signals.hasViewId("marketplace_tab", "marketplace_feed") -> AppSurface.MARKETPLACE
+        signals.hasViewId("marketplace_tab", "marketplace_feed") -> AppSurface.MARKETPLACE
         else -> AppSurface.OTHER
     }
 
     private fun classifySnapchat(signals: AppUiSignals): AppSurface = when {
         signals.hasSelectedLabel("spotlight") ||
-            signals.hasViewId("spotlight_tab", "spotlight_feed") -> AppSurface.SPOTLIGHT
-        signals.hasSelectedLabel("stories", "discover") ||
-            signals.hasViewId("stories_tab", "stories_feed", "discover_feed") -> AppSurface.STORIES
+            signals.hasViewId("spotlight_feed", "spotlight_player", "spotlight_viewer", "spotlight_container") -> {
+            AppSurface.SPOTLIGHT
+        }
+        // Friends-row recommendations and Discover share the public-story viewer.
+        // Only navigation/composer controls identify the Friends variant.
+        signals.hasViewId("opera_viewer") && (
+            signals.snapchatFriendStoryNavigation ||
+                signals.hasViewId("story_reply", "reply_to_story") ||
+                signals.hasEditableLabel("send a chat", "reply", "send chat")
+            ) -> AppSurface.STORIES
+        signals.hasViewId("discover_viewer", "discover_player") ||
+            (signals.hasViewId("opera_viewer") && signals.hasViewId("chrome_subscribe_button")) -> {
+            AppSurface.DISCOVER
+        }
+        signals.hasSelectedLabel("stories") ||
+            signals.hasViewId("stories_feed", "story_viewer", "stories_viewer") -> AppSurface.STORIES
+        // The Discover tab/grid is deliberately available until a post opens.
         else -> AppSurface.OTHER
     }
 

@@ -3,6 +3,10 @@ package com.boringutils.timehud.blocking
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -21,6 +25,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Button
 import android.widget.FrameLayout
+import androidx.core.content.ContextCompat
 import com.boringutils.timehud.AppLimitGraceControls
 import com.boringutils.timehud.ActiveOverlayContentController
 import com.boringutils.timehud.ActiveOverlayTrigger
@@ -58,7 +63,20 @@ class TimeHudAccessibilityService : AccessibilityService() {
     private var focusStartedElapsedMs = 0L
     private var focusStartedWallMs = 0L
 
-    private val evaluateRunnable = Runnable { evaluateWindows() }
+    private val evaluationSchedule = WindowEvaluationSchedule()
+    private val evaluateRunnable = Runnable {
+        evaluationSchedule.clear()
+        evaluateWindows()
+    }
+    private var screenReceiverRegistered = false
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> suspendBlockingForScreen()
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> scheduleEvaluation(delayMs = 0L)
+            }
+        }
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -72,6 +90,19 @@ class TimeHudAccessibilityService : AccessibilityService() {
             onEndGrace = ::endGrace,
             onGraceExpired = { scheduleEvaluation(delayMs = 0L) }
         )
+        if (!screenReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                screenStateReceiver,
+                IntentFilter().apply {
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                    addAction(Intent.ACTION_SCREEN_ON)
+                    addAction(Intent.ACTION_USER_PRESENT)
+                },
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            screenReceiverRegistered = true
+        }
         refreshBrickModeCatalog(force = true)
         scheduleEvaluation(delayMs = 0L)
     }
@@ -98,6 +129,10 @@ class TimeHudAccessibilityService : AccessibilityService() {
         AccessibilityForegroundAppStateStore.markDisconnected()
         destroyed.set(true)
         mainHandler.removeCallbacksAndMessages(null)
+        if (screenReceiverRegistered) {
+            unregisterReceiver(screenStateReceiver)
+            screenReceiverRegistered = false
+        }
         flushFocusedUsage()
         appWindowMemory.clear()
         rememberedAppWindows = emptyList()
@@ -108,6 +143,7 @@ class TimeHudAccessibilityService : AccessibilityService() {
 
     private fun scheduleEvaluation(delayMs: Long = WINDOW_DEBOUNCE_MS) {
         if (destroyed.get()) return
+        if (!evaluationSchedule.request(SystemClock.uptimeMillis(), delayMs)) return
         mainHandler.removeCallbacks(evaluateRunnable)
         mainHandler.postDelayed(evaluateRunnable, delayMs)
     }
@@ -131,13 +167,34 @@ class TimeHudAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun isScreenAvailableForBlocking(): Boolean =
+        getSystemService(PowerManager::class.java).isInteractive &&
+            !getSystemService(KeyguardManager::class.java).isKeyguardLocked
+
+    private fun suspendBlockingForScreen() {
+        mainHandler.removeCallbacks(evaluateRunnable)
+        evaluationSchedule.clear()
+        AccessibilityForegroundAppStateStore.updatePackage(null)
+        updateFocusedPackage(null)
+        appWindowMemory.clear()
+        rememberedAppWindows = emptyList()
+        if (::overlayController.isInitialized) overlayController.clear()
+    }
+
     private fun evaluateWindows() {
+        if (!isScreenAvailableForBlocking()) {
+            suspendBlockingForScreen()
+            return
+        }
         val windows = runCatching { windows.orEmpty() }.getOrDefault(emptyList())
         AccessibilityForegroundAppStateStore.updatePackage(findFocusedPackage(windows))
         val nowWallMs = System.currentTimeMillis()
         val graceState = AppLimitGraceStore.load(this, nowWallMs)
         val graceStatus = AppLimitGracePolicy.status(graceState, nowWallMs)
         val rules = AppBlockSettings.loadRules(this).associateBy { it.packageName }
+        val browserTestEnabled = rules[INSTAGRAM_PACKAGE]?.browserInstagramTest == true
+        val facebookBrowserSurfaces = rules[FACEBOOK_PACKAGE]
+            ?.takeIf { it.browserFacebook }?.blockedSurfaces.orEmpty()
         val brickModeConfig = BrickModeSettings.load(this, nowWallMs)
         val brickModeSchedules = BrickModeSettings.loadSchedules(this)
         val scheduledRestrictionMode = BrickModeSchedulePolicy.activeMode(
@@ -193,15 +250,21 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 scheduledMode = scheduledRestrictionMode,
                 nowMs = nowWallMs
             )
-            if (brickModeDecision == BlockDecision.Allow && rule == null) {
+            val inspectFacebookBrowser = facebookBrowserSurfaces.isNotEmpty() && packageName in INSTAGRAM_TEST_BROWSERS
+            val inspectBrowser = browserTestEnabled && packageName in INSTAGRAM_TEST_BROWSERS
+            if (brickModeDecision == BlockDecision.Allow && rule == null && !inspectBrowser && !inspectFacebookBrowser) {
                 return@mapNotNull null
             }
+            var instagramContentBounds: ScreenRect? = null
+            var facebookHomeBounds: ScreenRect? = null
             val surface = if (rule != null && brickModeDecision == BlockDecision.Allow) {
                 val signals = AppWindowInspector.inspect(
                     root = root,
                     windowTitle = runCatching { window.title?.toString() }.getOrNull(),
                     packageName = packageName
                 ).copy(isCompactWindow = geometry.isCompact(resources.displayMetrics))
+                instagramContentBounds = signals.instagramContentBounds
+                facebookHomeBounds = signals.facebookHomeBounds
                 if (signals.labels.isEmpty() && signals.viewIds.isEmpty()) {
                     hasUnreadableAppWindow = true
                     AppSurface.UNKNOWN
@@ -211,12 +274,27 @@ class TimeHudAccessibilityService : AccessibilityService() {
             } else {
                 AppSurface.UNKNOWN
             }
+            val browser = if (inspectBrowser && brickModeDecision == BlockDecision.Allow) {
+                BrowserInstagramInspector.inspect(root, packageName)
+            } else null
+            val facebookBrowser = if (inspectFacebookBrowser && brickModeDecision == BlockDecision.Allow) {
+                BrowserFacebookInspector.inspect(root, packageName)
+            } else null
             ObservedAppWindow(
                 geometry = geometry,
                 packageName = packageName,
                 surface = surface,
                 rule = rule,
-                brickModeDecision = brickModeDecision
+                brickModeDecision = brickModeDecision,
+                browserDecision = browser?.let {
+                    BrowserInstagramClassifier.decision(BrowserInstagramClassifier.classify(it.signals))
+                } ?: BlockDecision.Allow,
+                browserBounds = browser?.contentBounds,
+                facebookBrowserSurface = facebookBrowser?.let { BrowserFacebookClassifier.classify(it.signals) }
+                    ?: AppSurface.OTHER,
+                facebookBrowserBounds = facebookBrowser?.contentBounds,
+                instagramContentBounds = instagramContentBounds,
+                facebookHomeBounds = facebookHomeBounds
             )
         }
 
@@ -244,7 +322,8 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 geometry = geometries.firstOrNull { it.id == snapshot.windowId } ?: observed.geometry,
                 surface = snapshot.surface,
                 rule = rule,
-                brickModeDecision = restriction
+                brickModeDecision = restriction,
+                browserDecision = if (browserTestEnabled) observed.browserDecision else BlockDecision.Allow
             )
         }
         rememberedAppWindows = appWindows
@@ -275,18 +354,46 @@ class TimeHudAccessibilityService : AccessibilityService() {
                 focusedUsageMs = focusedUsageMs,
                 surface = observed.surface
             )
-            val decision = AppLimitGracePolicy.applyTo(appControlDecision, graceStatus)
+            val facebookDecision = BrowserFacebookClassifier.decision(
+                observed.facebookBrowserSurface, facebookBrowserSurfaces
+            )
+            val browserDecision = if (observed.browserDecision is BlockDecision.Block) {
+                observed.browserDecision
+            } else facebookDecision
+            val browserBounds = if (observed.browserDecision is BlockDecision.Block) {
+                observed.browserBounds
+            } else observed.facebookBrowserBounds
+            val combinedDecision = if (appControlDecision == BlockDecision.Allow) {
+                browserDecision
+            } else appControlDecision
+            val decision = AppLimitGracePolicy.applyTo(combinedDecision, graceStatus)
             when (decision) {
                 BlockDecision.Allow -> null
                 is BlockDecision.Block -> BlockTarget(
                     windowId = observed.geometry.id,
-                    bounds = observed.geometry.bounds,
+                    bounds = if (appControlDecision == BlockDecision.Allow &&
+                        browserDecision is BlockDecision.Block
+                    ) browserBounds ?: return@mapNotNull null
+                    else if (observed.packageName == INSTAGRAM_PACKAGE &&
+                        (decision.reason == BlockReason.HOME_FEED || decision.reason == BlockReason.REELS)
+                    ) observed.instagramContentBounds?.intersection(observed.geometry.bounds)
+                        ?: observed.geometry.bounds
+                    else if (observed.packageName in setOf(FACEBOOK_PACKAGE, FACEBOOK_LITE_PACKAGE) &&
+                        decision.reason == BlockReason.HOME_FEED
+                    ) observed.facebookHomeBounds?.intersection(observed.geometry.bounds)
+                        ?: observed.geometry.bounds
+                    else observed.geometry.bounds,
                     layer = observed.geometry.layer,
                     reason = decision.reason
                 )
             }
         }
 
+        // Lock state can change while the accessibility tree is being inspected.
+        if (!isScreenAvailableForBlocking()) {
+            suspendBlockingForScreen()
+            return
+        }
         overlayController.render(targets, geometries, graceStatus)
         scheduleNextBoundary(
             appWindows = appWindows,
@@ -548,7 +655,13 @@ private data class ObservedAppWindow(
     val packageName: String,
     val surface: AppSurface,
     val rule: AppBlockRule?,
-    val brickModeDecision: BlockDecision
+    val brickModeDecision: BlockDecision,
+    val browserDecision: BlockDecision = BlockDecision.Allow,
+    val browserBounds: ScreenRect? = null,
+    val facebookBrowserSurface: AppSurface = AppSurface.OTHER,
+    val facebookBrowserBounds: ScreenRect? = null,
+    val instagramContentBounds: ScreenRect? = null,
+    val facebookHomeBounds: ScreenRect? = null
 )
 
 private data class BlockTarget(
@@ -571,7 +684,60 @@ internal object AppWindowInspector {
         val focusedLabels = mutableSetOf<String>()
         val editableLabels = mutableSetOf<String>()
         val viewIds = mutableSetOf<String>()
+        var snapchatFriendStoryNavigation = false
+        var instagramNavigationTop: Int? = null
+        var youtubeCommentsPanelOpen = false
+        var facebookStoryReply = false
+        var facebookHomeSelected = false
+        var facebookLogoBottom: Int? = null
+        var facebookSearch = false
+        var facebookNavigationTop: Int? = null
+        val isFacebook = packageName == FACEBOOK_PACKAGE || packageName == FACEBOOK_LITE_PACKAGE
+        val windowBounds = Rect().also(root::getBoundsInScreen)
         traverse(root) { node ->
+            // Apps can retain closed viewers/navigation in the tree.
+            // Only visible, on-screen nodes may describe its current surface.
+            if (packageName == SNAPCHAT_PACKAGE || packageName == INSTAGRAM_PACKAGE ||
+                packageName == YOUTUBE_PACKAGE || isFacebook) {
+                val nodeBounds = Rect().also(node::getBoundsInScreen)
+                if (!node.isVisibleToUser || (isFacebook && nodeBounds.isEmpty) ||
+                    !Rect.intersects(windowBounds, nodeBounds)) return@traverse
+            }
+            if (packageName == YOUTUBE_PACKAGE && isYouTubeCommentsHeader(node)) {
+                youtubeCommentsPanelOpen = true
+            }
+            if (isFacebook) {
+                facebookSelectedNavigation(node)?.let { label ->
+                    selectedLabels += label
+                    if (label == "home") facebookHomeSelected = true
+                }
+                if (node.isClickable) {
+                    val description = node.contentDescription?.toString()?.normalizeSignal()
+                    val bounds = Rect().also(node::getBoundsInScreen)
+                    if (description == "facebook logo" && node.className == "android.view.View") {
+                        facebookLogoBottom = bounds.bottom
+                    }
+                    if (description == "search facebook" && node.className == "android.widget.Button") {
+                        facebookSearch = true
+                    }
+                    if (node.className == "android.app.ActionBar\$Tab" &&
+                        facebookSelectedTabLabel(node.contentDescription?.toString()) != null
+                    ) facebookNavigationTop = minOf(facebookNavigationTop ?: bounds.top, bounds.top)
+                }
+                if (node.isClickable && node.className == "android.widget.Button") {
+                    val description = node.contentDescription?.toString()?.normalizeSignal()
+                    if (isFacebookStoryReplyDescription(description)) facebookStoryReply = true
+                }
+            }
+            if (packageName == INSTAGRAM_PACKAGE) {
+                if (node.viewIdResourceName == "$INSTAGRAM_PACKAGE:id/tab_bar") {
+                    val bounds = Rect().also(node::getBoundsInScreen)
+                    if (bounds.top > windowBounds.top && bounds.top < windowBounds.bottom) {
+                        instagramNavigationTop = bounds.top
+                    }
+                }
+                instagramSelectedNavigation(node)?.let(selectedLabels::add)
+            }
             val nodeLabels = buildList<CharSequence> {
                 node.contentDescription?.let(::add)
                 node.text?.let(::add)
@@ -581,6 +747,15 @@ internal object AppWindowInspector {
             }
                 .map { it.toString().normalizeSignal() }
                 .filter { it.isNotEmpty() }
+                // Only the reply-control marker is retained, never its recipient.
+                .filterNot { isFacebook && isFacebookStoryReplyDescription(it) }
+            if (packageName == SNAPCHAT_PACKAGE && (
+                isSnapchatFriendStoryNavigation(node.viewIdResourceName, node.text) ||
+                    isSnapchatFriendStoryNavigation(node.viewIdResourceName, node.contentDescription)
+                )
+            ) {
+                snapchatFriendStoryNavigation = true
+            }
             labels += nodeLabels
             if (node.isSelected) selectedLabels += nodeLabels
             // X's Compose tabs expose selection on an unlabeled parent and the
@@ -601,8 +776,69 @@ internal object AppWindowInspector {
             focusedLabels = focusedLabels,
             editableLabels = editableLabels,
             viewIds = viewIds,
-            windowTitle = windowTitle.orEmpty().normalizeSignal()
+            windowTitle = windowTitle.orEmpty().normalizeSignal(),
+            snapchatFriendStoryNavigation = snapchatFriendStoryNavigation,
+            youtubeCommentsPanelOpen = youtubeCommentsPanelOpen,
+            facebookStoryViewerOpen = facebookStoryReply,
+            facebookHomeFeedOpen = facebookHomeSelected && facebookSearch && facebookLogoBottom != null,
+            facebookHomeBounds = facebookLogoBottom?.let { top ->
+                val bottom = facebookNavigationTop ?: windowBounds.bottom
+                ScreenRect(windowBounds.left, top, windowBounds.right, bottom)
+                    .intersection(ScreenRect(windowBounds.left, windowBounds.top, windowBounds.right, windowBounds.bottom))
+            },
+            instagramContentBounds = instagramNavigationTop?.let { bottom ->
+                ScreenRect(windowBounds.left, windowBounds.top, windowBounds.right, bottom)
+            }
         )
+    }
+
+    private fun facebookSelectedNavigation(node: AccessibilityNodeInfo): String? {
+        if (!node.isSelected || !node.isClickable ||
+            node.className != "android.app.ActionBar\$Tab") return null
+        return facebookSelectedTabLabel(node.contentDescription?.toString())
+    }
+
+    private fun facebookSelectedTabLabel(description: String?): String? {
+        val normalized = description?.normalizeSignal() ?: return null
+        return listOf("home", "reels", "marketplace").firstOrNull { label ->
+            normalized == label || normalized.startsWith("$label, tab ")
+        }
+    }
+
+    private fun isFacebookStoryReplyDescription(description: String?): Boolean =
+        description?.startsWith("send message, reply to ") == true && description.endsWith("'s story")
+
+    private fun isYouTubeCommentsHeader(node: AccessibilityNodeInfo): Boolean {
+        if (node.viewIdResourceName != "$YOUTUBE_PACKAGE:id/modern_title" ||
+            node.text?.toString()?.normalizeSignal() !in setOf("comments", "replies")) return false
+        // A preview card or a video named Comments is not an open comments panel.
+        var ancestor = node.parent
+        repeat(8) {
+            val parent = ancestor ?: return false
+            if (!parent.isVisibleToUser) return false
+            if (parent.viewIdResourceName == "$YOUTUBE_PACKAGE:id/panel_header") return true
+            ancestor = parent.parent
+        }
+        return false
+    }
+
+    private fun instagramSelectedNavigation(node: AccessibilityNodeInfo): String? {
+        if (!node.isSelected || node.isEditable) return null
+        val id = node.viewIdResourceName
+        // Only fixed navigation IDs qualify; selected text in a post cannot select Home.
+        fun label(viewId: String?): String? = when (viewId) {
+            "$INSTAGRAM_PACKAGE:id/feed_tab" -> "home"
+            "$INSTAGRAM_PACKAGE:id/direct_tab" -> "messages"
+            "$INSTAGRAM_PACKAGE:id/clips_tab" -> "reels"
+            "$INSTAGRAM_PACKAGE:id/search_tab" -> "explore"
+            else -> null
+        }
+        label(id)?.let { return it }
+        if (id != "$INSTAGRAM_PACKAGE:id/tab_icon") return null
+        val parent = node.parent ?: return null
+        val bounds = Rect().also(parent::getBoundsInScreen)
+        if (!parent.isVisibleToUser || bounds.isEmpty) return null
+        return label(parent.viewIdResourceName)
     }
 
     private fun hasSelectedTabAncestor(node: AccessibilityNodeInfo): Boolean {

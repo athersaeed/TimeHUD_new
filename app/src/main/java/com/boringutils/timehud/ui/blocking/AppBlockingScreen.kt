@@ -64,6 +64,7 @@ import com.boringutils.timehud.ui.theme.TimeHudColors
 import com.boringutils.timehud.blocking.AppBlockRule
 import com.boringutils.timehud.blocking.AppBlockSettings
 import com.boringutils.timehud.blocking.AppSurface
+import com.boringutils.timehud.blocking.FACEBOOK_PACKAGE
 import com.boringutils.timehud.blocking.INSTAGRAM_PACKAGE
 import com.boringutils.timehud.blocking.supportedSurfacesFor
 import com.boringutils.timehud.ui.usage.AppUsageLoadResult
@@ -493,6 +494,12 @@ internal fun AppRuleDialog(
     var allowMessages by remember(app.packageName) {
         mutableStateOf(existingRule?.allowMessages ?: true)
     }
+    var browserInstagramTest by remember(app.packageName) {
+        mutableStateOf(existingRule?.browserInstagramTest ?: false)
+    }
+    var browserFacebook by remember(app.packageName) {
+        mutableStateOf(existingRule?.browserFacebook ?: false)
+    }
     var showValidationError by remember(app.packageName) { mutableStateOf(false) }
     val parsedLimit = limitText.toIntOrNull()
     val validLimit = limitText.isBlank() || parsedLimit in 1..1440
@@ -537,6 +544,13 @@ internal fun AppRuleDialog(
                         }
                     )
                 }
+                if (AppSurface.DISCOVER in surfaceOptions) {
+                    Text(
+                        text = stringResource(R.string.app_blocking_discover_note),
+                        color = TimeHudColors.textSecondary,
+                        fontSize = 12.sp
+                    )
+                }
                 if (AppSurface.VIDEO_FEED in surfaceOptions) {
                     Text(
                         text = stringResource(R.string.app_blocking_video_feed_note),
@@ -544,7 +558,29 @@ internal fun AppRuleDialog(
                         fontSize = 12.sp
                     )
                 }
+                if (app.packageName == FACEBOOK_PACKAGE) {
+                    RuleSwitch(
+                        label = stringResource(R.string.facebook_browser_label),
+                        checked = browserFacebook,
+                        onCheckedChange = { browserFacebook = it }
+                    )
+                    Text(
+                        stringResource(R.string.facebook_browser_note),
+                        color = TimeHudColors.textSecondary,
+                        fontSize = 12.sp
+                    )
+                }
                 if (app.packageName == INSTAGRAM_PACKAGE) {
+                    RuleSwitch(
+                        label = stringResource(R.string.instagram_browser_test_label),
+                        checked = browserInstagramTest,
+                        onCheckedChange = { browserInstagramTest = it }
+                    )
+                    Text(
+                        stringResource(R.string.instagram_browser_test_note),
+                        color = TimeHudColors.textSecondary,
+                        fontSize = 12.sp
+                    )
                     RuleSwitch(
                         label = stringResource(R.string.app_blocking_allow_messages),
                         checked = allowMessages,
@@ -576,7 +612,9 @@ internal fun AppRuleDialog(
                             packageName = app.packageName,
                             dailyLimitMinutes = parsedLimit,
                             blockedSurfaces = blockedSurfaces,
-                            allowMessages = app.packageName == INSTAGRAM_PACKAGE && allowMessages
+                            allowMessages = app.packageName == INSTAGRAM_PACKAGE && allowMessages,
+                            browserInstagramTest = app.packageName == INSTAGRAM_PACKAGE && browserInstagramTest,
+                            browserFacebook = app.packageName == FACEBOOK_PACKAGE && browserFacebook
                         )
                     )
                 }
@@ -630,6 +668,8 @@ private fun BlockingMessageCard(
 @Composable
 private fun ruleSummary(rule: AppBlockRule): String = buildList {
     rule.dailyLimitMinutes?.let { add(stringResource(R.string.app_blocking_summary_limit, it)) }
+    if (rule.browserInstagramTest) add(stringResource(R.string.instagram_browser_test_summary))
+    if (rule.browserFacebook) add(stringResource(R.string.facebook_browser_summary))
     supportedSurfacesFor(rule.packageName)
         .filter(rule.blockedSurfaces::contains)
         .forEach { add(surfaceSummaryLabel(it)) }
@@ -643,6 +683,7 @@ private fun surfaceOptionLabel(surface: AppSurface): String = stringResource(
     when (surface) {
         AppSurface.SHORTS -> R.string.app_blocking_block_shorts
         AppSurface.VIDEO_SEARCH -> R.string.app_blocking_block_video_search
+        AppSurface.HOME_FEED -> R.string.app_blocking_block_home_feed
         AppSurface.VIDEO_FEED -> R.string.app_blocking_block_video_feed
         AppSurface.PICTURE_IN_PICTURE -> R.string.app_blocking_block_picture_in_picture
         AppSurface.COMMENTS -> R.string.app_blocking_block_comments
@@ -651,6 +692,7 @@ private fun surfaceOptionLabel(surface: AppSurface): String = stringResource(
         AppSurface.EXPLORE -> R.string.app_blocking_block_explore
         AppSurface.MARKETPLACE -> R.string.app_blocking_block_marketplace
         AppSurface.SPOTLIGHT -> R.string.app_blocking_block_spotlight
+        AppSurface.DISCOVER -> R.string.app_blocking_block_discover
         AppSurface.MESSAGE_INBOX,
         AppSurface.MESSAGE_THREAD,
         AppSurface.OTHER,
@@ -663,6 +705,7 @@ private fun surfaceSummaryLabel(surface: AppSurface): String = stringResource(
     when (surface) {
         AppSurface.SHORTS -> R.string.app_blocking_summary_shorts
         AppSurface.VIDEO_SEARCH -> R.string.app_blocking_summary_video_search
+        AppSurface.HOME_FEED -> R.string.app_blocking_summary_home_feed
         AppSurface.VIDEO_FEED -> R.string.app_blocking_summary_video_feed
         AppSurface.PICTURE_IN_PICTURE -> R.string.app_blocking_summary_picture_in_picture
         AppSurface.COMMENTS -> R.string.app_blocking_summary_comments
@@ -671,6 +714,7 @@ private fun surfaceSummaryLabel(surface: AppSurface): String = stringResource(
         AppSurface.EXPLORE -> R.string.app_blocking_summary_explore
         AppSurface.MARKETPLACE -> R.string.app_blocking_summary_marketplace
         AppSurface.SPOTLIGHT -> R.string.app_blocking_summary_spotlight
+        AppSurface.DISCOVER -> R.string.app_blocking_summary_discover
         AppSurface.MESSAGE_INBOX,
         AppSurface.MESSAGE_THREAD,
         AppSurface.OTHER,

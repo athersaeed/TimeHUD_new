@@ -7,6 +7,7 @@ import android.content.pm.ResolveInfo
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.edit
+import com.boringutils.timehud.DrivingAppPolicy
 import java.util.Calendar
 import java.util.TimeZone
 
@@ -521,7 +522,8 @@ internal object EssentialAppPolicy {
         packageName: String,
         appName: String,
         dynamicallyProtectedPackages: Set<String> = emptySet()
-    ): Boolean = packageName in dynamicallyProtectedPackages ||
+    ): Boolean = packageName in DrivingAppPolicy.knownNavigationPackages ||
+        packageName in dynamicallyProtectedPackages ||
         packageName in screenshotPackageNames ||
         appName.trim().lowercase() in screenshotAppNames
 }

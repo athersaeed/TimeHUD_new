@@ -1,0 +1,1 @@
+Added more app-usage periods and fixed the usage-screen crash. Improved blocking through notification interruptions and X Explore detection. Added optional X video-feed blocking.

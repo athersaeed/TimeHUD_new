@@ -117,6 +117,8 @@
     <string name="app_blocking_limit_error">Enter between 1 and 1440 minutes.</string>
     <string name="app_blocking_block_shorts">Block YouTube Shorts</string>
     <string name="app_blocking_block_video_search">Block video search</string>
+    <string name="app_blocking_block_home_feed">Block Home feed</string>
+    <string name="app_blocking_summary_home_feed">Home feed blocked</string>
     <string name="app_blocking_block_video_feed">Block video feed</string>
     <string name="app_blocking_video_feed_note">Blocks X’s full-screen, swipeable video feed, including videos opened from posts. Videos playing within the timeline remain available.</string>
     <string name="app_blocking_block_picture_in_picture">Block picture-in-picture mode</string>
@@ -126,7 +128,9 @@
     <string name="app_blocking_block_explore">Block Explore</string>
     <string name="app_blocking_block_marketplace">Block Marketplace</string>
     <string name="app_blocking_block_spotlight">Block Spotlight</string>
-    <string name="app_blocking_allow_messages">Allow open Instagram chats</string>
+    <string name="app_blocking_block_discover">Block Discover</string>
+    <string name="app_blocking_discover_note">Blocks opened Discover posts. The browsing page and Friends stories remain available.</string>
+    <string name="app_blocking_allow_messages">Allow Instagram inbox and chats</string>
     <string name="app_blocking_surface_note">Section detection uses English navigation labels, window titles, and view identifiers. App updates can temporarily affect recognition.</string>
     <string name="app_blocking_remove_rule">Remove this rule</string>
     <string name="app_blocking_save_rule">Save rule</string>
@@ -141,7 +145,8 @@
     <string name="app_blocking_summary_explore">Explore blocked</string>
     <string name="app_blocking_summary_marketplace">Marketplace blocked</string>
     <string name="app_blocking_summary_spotlight">Spotlight blocked</string>
-    <string name="app_blocking_summary_messages">Open chats allowed</string>
+    <string name="app_blocking_summary_discover">Discover blocked</string>
+    <string name="app_blocking_summary_messages">Inbox and chats allowed</string>
     <string name="blocking_overlay_content_description">TimeHUD check-in covering content blocked by an app-control rule</string>
     <string name="app_limit_grace_title">Need a little more time?</string>
     <plurals name="app_limit_grace_duration">
@@ -258,4 +263,10 @@
         <item quantity="other">%1$s allows %2$d chosen apps, plus protected essentials. Other apps will be blocked.\n\nThis starts a manual session until you turn it off, replacing any current manual session and timer. Existing schedules and app limits still apply.</item>
     </plurals>
     <string name="overlay_mode_load_failed">Could not load allowed apps. Open Settings to review this mode.</string>
+    <string name="instagram_browser_test_label">Block Instagram in browsers</string>
+    <string name="instagram_browser_test_note">Chrome, Brave, and Firefox: blocks recognized feed, Reels, Explore, and Stories pages while keeping inbox and chats available. Experimental; other pages and unrecognized screens remain available. Separate browser limits, usage restrictions, and grace periods still apply.</string>
+    <string name="instagram_browser_test_summary">Browser test on</string>
+    <string name="facebook_browser_label">Block Facebook in browsers</string>
+    <string name="facebook_browser_note">Apply the Facebook sections selected above in Chrome, Brave, and Firefox, including private tabs. Comments and unrecognized pages stay available. Browser limits, usage restrictions, and grace periods still apply. Detection may be unavailable while the address bar is hidden.</string>
+    <string name="facebook_browser_summary">Browser blocking on</string>
 </resources>

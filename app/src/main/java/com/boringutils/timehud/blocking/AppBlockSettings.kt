@@ -14,6 +14,10 @@ internal object AppBlockSettings {
     // Read once for migration from the first Instagram-only implementation.
     private const val REELS_PREFIX = "block_reels:"
     private const val STORIES_PREFIX = "block_stories:"
+    private const val SNAPCHAT_DISCOVER_SEPARATED_KEY = "snapchat_discover_separated"
+    private const val FACEBOOK_BROWSER_KEY = "facebook_browser_enabled"
+    private const val LEGACY_FACEBOOK_BROWSER_KEY = "facebook_browser_surfaces"
+    private const val BROWSER_TEST_KEY = "instagram_browser_test"
     private const val MESSAGES_PREFIX = "allow_messages:"
 
     fun loadRules(context: Context): List<AppBlockRule> {
@@ -38,12 +42,32 @@ internal object AppBlockSettings {
                         }
                     }
                 }
+                // Older Snapchat Stories rules also covered Discover. Migrate once,
+                // then allow either switch to be saved independently.
+                val migratedSurfaces = if (packageName == SNAPCHAT_PACKAGE &&
+                    !preferences.getBoolean(SNAPCHAT_DISCOVER_SEPARATED_KEY, false)
+                ) {
+                    migrateSnapchatDiscoverSurfaces(blockedSurfaces).also { surfaces ->
+                        preferences.edit {
+                            putStringSet(surfacesKey, surfaces.mapTo(mutableSetOf()) { it.name })
+                            putBoolean(SNAPCHAT_DISCOVER_SEPARATED_KEY, true)
+                        }
+                    }
+                } else {
+                    blockedSurfaces
+                }
                 AppBlockRule(
                     packageName = packageName,
                     dailyLimitMinutes = preferences.getInt(LIMIT_PREFIX + packageName, 0)
                         .takeIf { it > 0 },
-                    blockedSurfaces = blockedSurfaces,
-                    allowMessages = preferences.getBoolean(MESSAGES_PREFIX + packageName, true)
+                    blockedSurfaces = migratedSurfaces,
+                    allowMessages = preferences.getBoolean(MESSAGES_PREFIX + packageName, true),
+                    browserInstagramTest = packageName == INSTAGRAM_PACKAGE && preferences.getBoolean(BROWSER_TEST_KEY, false),
+                    browserFacebook = packageName == FACEBOOK_PACKAGE && preferences.getBoolean(
+                        FACEBOOK_BROWSER_KEY,
+                        preferences.getStringSet(LEGACY_FACEBOOK_BROWSER_KEY, emptySet()).orEmpty()
+                            .any { name -> FACEBOOK_BROWSER_SURFACES.any { it.name == name } }
+                    )
                 )
             }
             .filter { it.isConfigured }
@@ -75,6 +99,14 @@ internal object AppBlockSettings {
                 rule.blockedSurfaces.mapTo(mutableSetOf()) { it.name }
             )
             putBoolean(MESSAGES_PREFIX + rule.packageName, rule.allowMessages)
+            if (rule.packageName == INSTAGRAM_PACKAGE) putBoolean(BROWSER_TEST_KEY, rule.browserInstagramTest)
+            if (rule.packageName == FACEBOOK_PACKAGE) {
+                putBoolean(FACEBOOK_BROWSER_KEY, rule.browserFacebook)
+                remove(LEGACY_FACEBOOK_BROWSER_KEY)
+            }
+            if (rule.packageName == SNAPCHAT_PACKAGE) {
+                putBoolean(SNAPCHAT_DISCOVER_SEPARATED_KEY, true)
+            }
             remove(REELS_PREFIX + rule.packageName)
             remove(STORIES_PREFIX + rule.packageName)
         }
@@ -91,6 +123,11 @@ internal object AppBlockSettings {
             remove(REELS_PREFIX + packageName)
             remove(STORIES_PREFIX + packageName)
             remove(MESSAGES_PREFIX + packageName)
+            if (packageName == INSTAGRAM_PACKAGE) remove(BROWSER_TEST_KEY)
+            if (packageName == FACEBOOK_PACKAGE) {
+                remove(FACEBOOK_BROWSER_KEY)
+                remove(LEGACY_FACEBOOK_BROWSER_KEY)
+            }
         }
     }
 }

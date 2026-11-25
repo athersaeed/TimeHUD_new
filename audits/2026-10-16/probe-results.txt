@@ -1,0 +1,4 @@
+Untrusted app named Settings protected: true
+Same package with ordinary name protected: false
+Settings after essential allow plus 1-minute rule: Block(reason=DAILY_LIMIT)
+2 MiB goal accepted: true
