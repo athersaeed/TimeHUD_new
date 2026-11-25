@@ -9,6 +9,7 @@ import android.os.Build
 import java.util.concurrent.ConcurrentHashMap
 
 internal data class HudRuntimeSample(
+    val sampledAtMs: Long,
     val totalScreenTimeMs: Long?,
     val drivingAppActive: Boolean?
 )

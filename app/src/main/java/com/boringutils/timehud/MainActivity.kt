@@ -1,6 +1,7 @@
 package com.boringutils.timehud
 
 import android.Manifest
+import android.app.Activity
 import android.app.AppOpsManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -60,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -198,6 +200,15 @@ private fun startOverlayService(context: Context) {
     }
 }
 
+// Re-posts the ongoing notification of an already running HUD after access is granted.
+private fun refreshOverlayServiceNotification(context: Context) {
+    try {
+        context.startService(Intent(context, OverlayService::class.java))
+    } catch (_: RuntimeException) {
+        // The notification refreshes on the next service start instead.
+    }
+}
+
 private fun stopOverlayService(context: Context) {
     StartupPreferences.markHudStopped(context)
     context.stopService(Intent(context, OverlayService::class.java))
@@ -220,6 +231,9 @@ fun TimeHUDScreen(
         mutableStateOf(AccessibilityServiceStatus.isEnabled(context))
     }
     var calendarGranted by remember { mutableStateOf(CalendarAgenda.hasReadCalendarPermission(context)) }
+    var notificationsEnabled by remember {
+        mutableStateOf(NotificationAccess.areNotificationsEnabled(context))
+    }
     var selectedDestinationName by rememberSaveable {
         mutableStateOf((requestedDestination ?: TimeHudDestination.GOALS).name)
     }
@@ -320,6 +334,48 @@ fun TimeHUDScreen(
         }
     }
 
+    fun onNotificationAccessChecked() {
+        val enabled = NotificationAccess.areNotificationsEnabled(context)
+        if (enabled && !notificationsEnabled && serviceState.isRunning) {
+            refreshOverlayServiceNotification(context)
+        }
+        notificationsEnabled = enabled
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        onNotificationAccessChecked()
+        val activity = context as? Activity
+        val shouldShowRationale = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            activity != null &&
+            ActivityCompat.shouldShowRequestPermissionRationale(
+                activity,
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+        if (NotificationGrantPolicy.shouldOpenSettingsAfterDenial(granted, shouldShowRationale)) {
+            NotificationAccess.openSettings(context)
+        }
+    }
+
+    // The automatic prompt on first Start never redirects to Settings.
+    val startNotificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        onNotificationAccessChecked()
+    }
+
+    fun requestNotificationAccess() {
+        when (NotificationAccess.grantAction(context)) {
+            NotificationGrantAction.REQUEST_RUNTIME_PERMISSION -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+            NotificationGrantAction.OPEN_SETTINGS -> NotificationAccess.openSettings(context)
+        }
+    }
+
     val exportGoalsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument(GoalBackupFormat.MIME_TYPE)
     ) { uri ->
@@ -398,6 +454,7 @@ fun TimeHUDScreen(
                 usageGranted = hasUsagePermission(context)
                 accessibilityGranted = AccessibilityServiceStatus.isEnabled(context)
                 calendarGranted = CalendarAgenda.hasReadCalendarPermission(context)
+                onNotificationAccessChecked()
                 if (calendarGranted) {
                     calendarAgendaRefreshRequest += 1L
                 } else {
@@ -487,6 +544,17 @@ fun TimeHUDScreen(
                 onStartService = {
                     saveGoalSettings()
                     onStartService()
+                    // Optional: the HUD runs either way; this only lets its ongoing
+                    // notification appear on Android 13+.
+                    if (
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        NotificationAccess.shouldPromptOnStart(context)
+                    ) {
+                        NotificationAccess.markPromptedOnStart(context)
+                        startNotificationPermissionLauncher.launch(
+                            Manifest.permission.POST_NOTIFICATIONS
+                        )
+                    }
                 },
                 onStopService = onStopService
             )
@@ -515,6 +583,7 @@ fun TimeHUDScreen(
                 usageGranted = usageGranted,
                 accessibilityGranted = accessibilityGranted,
                 calendarGranted = calendarGranted,
+                notificationsEnabled = notificationsEnabled,
                 onRequestOverlay = { requestOverlayPermission(context) },
                 onRequestUsage = { requestUsagePermission(context) },
                 onRequestAccessibility = {
@@ -522,7 +591,8 @@ fun TimeHUDScreen(
                 },
                 onRequestCalendar = {
                     calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
-                }
+                },
+                onRequestNotifications = { requestNotificationAccess() }
             )
         }
     }
@@ -697,10 +767,12 @@ private fun PermissionsPage(
     usageGranted: Boolean,
     accessibilityGranted: Boolean,
     calendarGranted: Boolean,
+    notificationsEnabled: Boolean,
     onRequestOverlay: () -> Unit,
     onRequestUsage: () -> Unit,
     onRequestAccessibility: () -> Unit,
-    onRequestCalendar: () -> Unit
+    onRequestCalendar: () -> Unit,
+    onRequestNotifications: () -> Unit
 ) {
     val allRequiredPermissionsGranted = overlayGranted && usageGranted
     val context = LocalContext.current
@@ -765,6 +837,13 @@ private fun PermissionsPage(
             description = stringResource(R.string.permission_calendar_description),
             granted = calendarGranted,
             onRequest = onRequestCalendar
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        PermissionCard(
+            title = stringResource(R.string.permission_notifications_title),
+            description = stringResource(R.string.permission_notifications_description),
+            granted = notificationsEnabled,
+            onRequest = onRequestNotifications
         )
         Spacer(modifier = Modifier.height(22.dp))
 

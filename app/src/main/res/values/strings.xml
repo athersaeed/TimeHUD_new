@@ -59,6 +59,8 @@
     <string name="permission_calendar_description">Optional: show today’s events in the read-only agenda</string>
     <string name="permission_required_ready">Required permissions are ready.</string>
     <string name="permission_required_missing">Grant overlay and usage access before starting the HUD.</string>
+    <string name="permission_notifications_title">Notifications</string>
+    <string name="permission_notifications_description">Optional: show the ongoing HUD notification for quick return to TimeHUD. The HUD runs either way.</string>
     <string name="permission_granted">Granted</string>
     <string name="permission_grant">Grant</string>
     <string name="agenda_heading">Today’s agenda</string>

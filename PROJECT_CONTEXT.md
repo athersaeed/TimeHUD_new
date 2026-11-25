@@ -27,7 +27,7 @@ Usage restrictions also includes Sleep Mode with a separate persisted allow-list
 4. Optionally grant calendar access to show today's visible events in a separate, live, read-only agenda on the Goals page and active check-in (`MainActivity.kt`, `CalendarAgenda.kt`, `ActiveOverlayContentController.kt`).
 5. Save goals or press **Start HUD**, which saves the current fields and starts `OverlayService` as a foreground service (`MainActivity.kt`).
 6. A circular timer bubble appears over other apps and updates every 10 seconds. It can be dragged anywhere within the screen; the last position is restored when the bubble returns (`OverlayService.kt`, `BubblePositioning.kt`, `overlay_passive.xml`).
-7. Once per newly observed total-screen-time bucket at the persisted 1–60 minute interval, a touchable full-screen overlay appears. The Goals page provides a discrete slider and defaults existing users to five minutes. The overlay shows the time, up to five live calendar events, and up to eight short- or long-term goal lines. Because `lastTriggeredBucket` begins at `-1`, starting/restarting the service after at least one configured interval of accumulated screen time can trigger this overlay immediately. Changing the interval while the service runs re-baselines the current bucket rather than opening a check-in immediately.
+7. Once per newly observed total-screen-time bucket at the persisted 1–60 minute interval, a touchable full-screen overlay appears. The Goals page provides a discrete slider and defaults existing users to five minutes. The overlay shows the time, up to five live calendar events, and up to eight short- or long-term goal lines. The last observed bucket is persisted per 3:00 AM usage period and interval in `CheckInBucketStore` (`timehud_check_in_bucket`), so restarting the service, rebooting, or updating the app resumes it instead of repeating a check-in; a bucket crossed while the service was stopped still opens one check-in. With no record for the current period (for example the first Start of the day), `lastTriggeredBucket` begins at `-1`, so starting after at least one configured interval of accumulated screen time can trigger this overlay immediately. If the interval changed while the service was stopped, the current bucket becomes the baseline. Changing the interval while the service runs re-baselines the current bucket rather than opening a check-in immediately.
 8. Tapping the bubble opens the same full-screen check-in on demand and enables its close button immediately. Automatically triggered periodic check-ins keep the five-second close delay. Every shared check-in—including app-control blockers—offers an immediately available **Usage restrictions** shortcut that dismisses the overlay and opens the Usage restrictions destination without duplicating the activity. In the check-in, the user can switch between short- and long-term goals, tap a goal, mark it done for today, remove it, or cancel. Completion shows a brief animation (`OverlayService.kt`, `ActiveOverlayContentController.kt`, `overlay_active.xml`).
 9. The persistent notification opens `MainActivity`. **Stop HUD** stops the service and clears the restart preference (`OverlayService.kt:100-125`, `MainActivity.kt:130-132`).
 10. If the HUD was marked active, boot or package replacement attempts to restart it when overlay and usage permissions are still present (`BootReceiver.kt:17-35`).
@@ -156,7 +156,7 @@ OverlayService lifecycle
 - An `ON_RESUME` observer rechecks overlay, usage, and calendar permissions after system screens return (`MainActivity.kt:181-191`).
 - `rememberSaveable` restores the selected destination, unsaved goal edits, and status across ordinary activity recreation. App-usage loading/results live in an activity-scoped `AppUsageViewModel`; other screens still have no ViewModel or saved-state schema.
 - `OverlayServiceStateStore` is process-memory only. `StartupPreferences` separately persists the user's active-HUD intent for boot/restart behavior (`OverlayServiceState.kt`, `StartupPreferences.kt`).
-- Overlay state (`isActiveState`, selected goal mode, current view, periodic bucket) exists only in service fields and is lost if the service/process is recreated (`OverlayService.kt`). The selected interval is persisted separately in `CheckInSettings`.
+- Overlay state (`isActiveState`, selected goal mode, current view) exists only in service fields and is lost if the service/process is recreated (`OverlayService.kt`). The selected interval is persisted in `CheckInSettings`; the last observed periodic bucket is persisted with its usage period and interval in `CheckInBucketStore`.
 
 ### Business logic, errors, and loading
 
@@ -329,7 +329,7 @@ Device boot or app replacement
 | `TimeHudAccessibilityService` | Current focused configured package, focus interval, visible window classifications, blocking targets, and attached overlay pieces | Accessibility window/content events, scheduled daily-limit boundary checks, and the blocked-overlay Home action | System-owned optional service. Rules and accumulated daily usage persist; live nodes and overlays do not. Destruction/interruption flushes focus time and removes overlays. |
 | `OverlayServiceStateStore` | `StateFlow<OverlayServiceUiState>` with `isRunning` and derived `primaryAction` | `markRunning()`, `markStopped()` from service lifecycle | Process-local only. It is sufficient for the current same-process activity/service but is not an authoritative cross-process/persistent service monitor. |
 | `StartupPreferences` | Persistent `hud_active` boolean | Service `onStartCommand` marks true; explicit activity stop marks false | Used for boot restart intent. `OverlayService.onDestroy()` intentionally does not clear it, so system destruction still leaves restart intent set. |
-| `OverlayService` / `ActiveOverlayContentController` | Current overlay views, active/passive flag, last bucket, goal snapshot, and goal mode | 10-second tick; switch, close, and goal-row clicks; the accessibility service reuses the content controller for blocked-app check-ins | Plain fields; not restored after service/process recreation. Restart resets the bucket and can immediately show active UI. |
+| `OverlayService` / `ActiveOverlayContentController` | Current overlay views, active/passive flag, last bucket, goal snapshot, and goal mode | 10-second tick; switch, close, and goal-row clicks; the accessibility service reuses the content controller for blocked-app check-ins | Plain fields; not restored after service/process recreation, except the last bucket, which `CheckInBucketStore` restores for the same usage period. |
 | `GoalSettings` | Short/long raw strings | Load, save, remove | `SharedPreferences`; editor displays raw strings, overlay displays normalized nonblank lines capped at eight. |
 | `GoalBackupFormat` / `GoalBackupStorage` | Versioned goal-only JSON and typed read/write results | Serialize current editor snapshot; validate selected document | Parsing produces no goal object until every required field is valid. Unknown fields are ignored. URI access is one-time and streams are always closed. |
 | `GoalCompletionStore` | Set of normalized goal keys plus stored date | Complete/uncomplete goal | Daily by local `yyyy-MM-dd`; old stored keys remain on disk but are ignored after the date changes until a new completion is saved. |
@@ -407,7 +407,7 @@ There are no API clients, base URLs, endpoints, network DTOs, repositories, Room
 | Android Usage Access/AppOps | Permission gate, screen-interactive events, and per-app foreground history | Manifest `PACKAGE_USAGE_STATS`; `MainActivity.kt`; `BootReceiver.kt`; `OverlayService.kt`; `ui/usage/` | None | Implemented with API 24-28 permission-check fallback; lower-API and real-device app-history behavior still need manual coverage. |
 | Android `WindowManager` overlays | Passive and active HUD over other apps | Manifest `SYSTEM_ALERT_WINDOW`; permission intent in `MainActivity`; overlay creation in `OverlayService.kt:128-212` | None | Implemented; permission-revocation failures are not caught. |
 | Android Calendar Provider | Optional live, read-only agenda | Manifest `READ_CALENDAR`; `MainActivity.kt`; `CalendarAgenda.kt`; `ActiveOverlayContentController.kt` | None | Implemented read-only. Goals distinguishes missing permission, empty results, and provider failure; overlays fail closed by hiding an unavailable agenda. Queries run on `Dispatchers.IO`. |
-| Android foreground-service notification | Keeps service foreground and returns to app | Manifest foreground-service permissions/type; `OverlayService.kt:55-125`; strings resources | None | Implemented. Runtime notification permission handling is missing. |
+| Android foreground-service notification | Keeps service foreground and returns to app | Manifest foreground-service permissions/type; `OverlayService.kt:55-125`; strings resources | None | Implemented. On Android 13+, the first HUD Start asks once for `POST_NOTIFICATIONS`; the Permissions page shows an optional Notifications card that requests it, or opens app notification settings once Android stops prompting or before Android 13. The HUD runs either way; granting while it runs re-posts the notification. |
 | Android boot/package broadcasts | Restart previously active HUD | Manifest receiver; `BootReceiver.kt`; `StartupPreferences.kt` | None | Implemented with overlay/usage gates. |
 | Android Storage Access Framework | One-time manual creation/opening of goal backup JSON documents | `MainActivity.kt`, `GoalBackup.kt`, `ui/backup/GoalBackupPanel.kt` | None; no retained URI grant | Implemented for goal-only export and confirmed replacement import. |
 
@@ -428,7 +428,7 @@ The `hud_active` startup preference is only a local service-restart preference; 
 | `READ_CALENDAR` | Query today's visible calendar instances | Optional runtime request on the Permissions page; a grant returns to Goals and loads the agenda | Goals shows a permission-required state; the HUD and goal checklist remain usable. |
 | `FOREGROUND_SERVICE` | Run `OverlayService` persistently | Normal install permission; no prompt | No custom refusal path. |
 | `FOREGROUND_SERVICE_SPECIAL_USE` | Target-36 special-use foreground-service type | Declared with `foregroundServiceType="specialUse"` and explanatory property (`AndroidManifest.xml:47-54`) | No runtime UI; release policy/declaration requirements are outside this repo. |
-| `POST_NOTIFICATIONS` | Permit foreground notification visibility on Android 13+ | Declared only; no runtime request exists | App does not explain or react to denial. Foreground-service UX/visibility can be reduced depending on platform behavior. |
+| `POST_NOTIFICATIONS` | Permit foreground notification visibility on Android 13+ | `NotificationAccess.kt`, `MainActivity.kt` Permissions page and Start action | Optional. Denial leaves the HUD running without a visible notification; the card shows the state and links to settings. |
 | `RECEIVE_BOOT_COMPLETED` | Receive boot and package-replaced broadcasts | Normal install permission; receiver is exported and sender-protected (`AndroidManifest.xml:37-45`) | No restart if broadcast is unavailable or app is in a stopped state. |
 
 Other platform usage:
@@ -666,7 +666,6 @@ The most important untested behavior is also the most failure-prone: total scree
 ### Partial/fragile functionality
 
 - API 24-28 usage-access behavior has a compatible code path but has not been exercised on physical devices or emulators in this workspace.
-- Notification permission is manifest-only (`AndroidManifest.xml:8`); no `POST_NOTIFICATIONS` launcher exists.
 - Calendar Provider behavior still requires physical-device coverage across vendors and permission revocation while an overlay is open.
 - Service state is split between an in-memory StateFlow and persistent desired-start preference, with no OS-level service query.
 - Release assembly works but produces an unsigned APK.
@@ -684,7 +683,7 @@ The most important untested behavior is also the most failure-prone: total scree
 
 - Save/Start reconciles each goal draft against its saved baseline and the current preferences. Overlay deletions are applied without discarding unrelated draft additions or rewritten lines; duplicate removals are count-aware. The baseline survives activity recreation and resets after save/import. The editor can still show the old line until Save/Start.
 - Older saved text can still contain a reserved `Calendar Today` section. It is no longer parsed into checklist rows; the Goals page exposes an explicit cleanup action because automatically deleting everything after that legacy marker could discard later manual edits.
-- Restarting the service after one configured interval of accumulated usage can immediately open the active overlay because the last bucket is not persisted.
+- The first HUD Start of a usage day after at least one configured interval of usage still opens a check-in immediately; restarts within the same period resume the persisted bucket.
 - Goal normalization can make visually different goals share one completion key.
 
 ## 17. Important files
@@ -735,7 +734,6 @@ Future work on screen-time behavior should read `OverlayService.kt`, `AndroidMan
 | **High** | Sensitive platform capabilities lack production/privacy hardening | Always-on-top UI, usage history, calendar data, boot restart, and special-use foreground service have no onboarding rationale, privacy policy/store declaration, or denial/revocation recovery in repo. This is a policy and trust risk. |
 | **Medium** | Platform startup still needs device validation | HUD window attach/update failures now dispose overlays, clear active state and stop the service. Android foreground-service startup restrictions and vendor behavior still need device validation. |
 | **Medium** | Platform screen-history completeness | Pure aggregation has regression coverage, but period-start state remains inferred from available events and empty-history power state. OEM history omissions cannot be reconstructed reliably. |
-| **Medium** | Notification permission not requested | `POST_NOTIFICATIONS` is declared but no runtime flow or denial state exists, reducing foreground-service transparency on recent Android versions. |
 | **Low** | Goal editor refresh is deferred | Save/Start now reconciles overlay removals with draft edits. The editor does not live-refresh when an overlay removes a goal. |
 | **Medium** | Non-goal local data can be lost | Manual JSON backup now protects goal text when the user exports it, but `allowBackup=false` and no automatic backup/sync mean completion/startup state and unexported changes are still lost on uninstall/clear-data by design. |
 | **Medium** | Compose dependency alignment is surprising | BOM `2024.09.00` constrains UI `1.7.0`, but resolved UI is `1.9.2` while Material 3 is `1.3.0`. Builds pass, but future dependency changes can expose binary/UI incompatibility. |
@@ -785,11 +783,10 @@ Do not treat this list as work already completed.
 
 ### Important improvements
 
-1. Add runtime `POST_NOTIFICATIONS` handling with clear explanation and denial behavior.
-2. Establish one observable goal source so service removals and activity edits cannot overwrite each other.
-3. Add device/Compose coverage for the separated calendar agenda states, including grant, denial, revocation, empty calendars, provider failure, Refresh, and legacy-text cleanup.
-4. Align the Compose BOM/direct dependencies intentionally and document why versions differ.
-5. Add clear first-run disclosure/privacy documentation for usage, overlay, calendar, boot, and foreground-service behavior.
+1. Establish one observable goal source so service removals and activity edits cannot overwrite each other.
+2. Add device/Compose coverage for the separated calendar agenda states, including grant, denial, revocation, empty calendars, provider failure, Refresh, and legacy-text cleanup.
+3. Align the Compose BOM/direct dependencies intentionally and document why versions differ.
+4. Add clear first-run disclosure/privacy documentation for usage, overlay, calendar, boot, and foreground-service behavior.
 
 ### Testing improvements
 

@@ -15,7 +15,7 @@ android {
         applicationId = "com.boringutils.timehud"
         minSdk = 24
         targetSdk = 36
-        versionCode = 8
+        versionCode = 10
         versionName = "1.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

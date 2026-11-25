@@ -21,6 +21,7 @@ import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
 import com.boringutils.timehud.ui.navigation.TimeHudDestination
+import com.boringutils.timehud.ui.usage.currentUsagePeriodStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -69,7 +70,9 @@ class OverlayService : Service() {
     private var usageAccessDrivingSignal = false
     private var accessibilityWindowDrivingSignal: Boolean? = null
     private var isDrivingAppActive = false
-    private var lastTriggeredBucket: Long = -1L
+    private var lastTriggeredBucket: Long = CheckInBucketRestorePolicy.NO_OBSERVED_BUCKET
+    private var observedPeriodStartMs: Long? = null
+    private var persistedBucketRecord: CheckInBucketRecord? = null
     private var checkInIntervalMinutes = CheckInSettings.DEFAULT_INTERVAL_MINUTES
     private var latestTimeText: String = "…"
     private var overlayFailed = false
@@ -106,9 +109,11 @@ class OverlayService : Service() {
         serviceScope.launch {
             while (isActive && !overlayFailed) {
                 val sample = withContext(Dispatchers.IO) {
+                    val sampledAtMs = System.currentTimeMillis()
                     HudRuntimeSample(
+                        sampledAtMs = sampledAtMs,
                         totalScreenTimeMs = try {
-                            ScreenTimeDisplay.queryMs(this@OverlayService)
+                            ScreenTimeDisplay.queryMs(this@OverlayService, sampledAtMs)
                         } catch (_: RuntimeException) {
                             null
                         },
@@ -122,7 +127,9 @@ class OverlayService : Service() {
                 // Keep the last successful readings on provider failure.
                 if (!overlayFailed) {
                     sample.drivingAppActive?.let(::updateUsageAccessDrivingSignal)
-                    sample.totalScreenTimeMs?.let(::updateScreenTime)
+                    sample.totalScreenTimeMs?.let { totalMs ->
+                        updateScreenTime(totalMs, sample.sampledAtMs)
+                    }
                 }
                 delay(TICK_INTERVAL_MS)
             }
@@ -411,11 +418,26 @@ class OverlayService : Service() {
         }
     }
 
-    private fun updateScreenTime(totalMs: Long) {
+    private fun updateScreenTime(totalMs: Long, sampledAtMs: Long) {
         latestTimeText = ScreenTimeDisplay.format(totalMs)
         if (!isActiveState) updatePassiveText(latestTimeText)
         val configuredIntervalMinutes = CheckInSettings.loadIntervalMinutes(this)
-        if (configuredIntervalMinutes != checkInIntervalMinutes) {
+        val periodStartMs = currentUsagePeriodStart(sampledAtMs)
+        if (periodStartMs != observedPeriodStartMs) {
+            // First sample after (re)creation or a 3:00 AM rollover: resume the
+            // persisted bucket so a restart does not repeat a check-in.
+            observedPeriodStartMs = periodStartMs
+            checkInIntervalMinutes = configuredIntervalMinutes
+            lastTriggeredBucket = CheckInBucketRestorePolicy.restore(
+                record = CheckInBucketStore.load(this),
+                periodStartMs = periodStartMs,
+                intervalMinutes = checkInIntervalMinutes,
+                currentBucket = CheckInOverlayPolicy.bucketFor(
+                    totalScreenTimeMs = totalMs,
+                    intervalMinutes = checkInIntervalMinutes
+                )
+            )
+        } else if (configuredIntervalMinutes != checkInIntervalMinutes) {
             checkInIntervalMinutes = configuredIntervalMinutes
             lastTriggeredBucket = CheckInOverlayPolicy.bucketFor(
                 totalScreenTimeMs = totalMs,
@@ -429,9 +451,22 @@ class OverlayService : Service() {
             intervalMinutes = checkInIntervalMinutes
         )
         lastTriggeredBucket = decision.observedBucket
+        persistObservedBucket(periodStartMs)
         if (decision.shouldShowCheckIn) {
             showActiveOverlay(latestTimeText, ActiveOverlayTrigger.PERIODIC_CHECK_IN)
         }
+    }
+
+    private fun persistObservedBucket(periodStartMs: Long) {
+        if (lastTriggeredBucket < 0L) return
+        val record = CheckInBucketRecord(
+            periodStartMs = periodStartMs,
+            intervalMinutes = checkInIntervalMinutes,
+            bucket = lastTriggeredBucket
+        )
+        if (record == persistedBucketRecord) return
+        CheckInBucketStore.save(this, record)
+        persistedBucketRecord = record
     }
 
     private fun updateUsageAccessDrivingSignal(active: Boolean) {
