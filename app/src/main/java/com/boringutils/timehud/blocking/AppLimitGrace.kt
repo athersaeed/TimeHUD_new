@@ -8,6 +8,50 @@ internal val APP_LIMIT_GRACE_MINUTES = listOf(3, 5, 10, 15, 20, 25, 30)
 internal const val APP_LIMIT_EMERGENCY_GRACE_MINUTES = 3
 internal const val APP_LIMIT_GRACE_COOLDOWN_MINUTES = 30
 
+internal fun formatGraceCooldownDuration(minutes: Int): String {
+    val clamped = minutes.coerceAtLeast(1)
+    val hours = clamped / 60
+    val remainingMinutes = clamped % 60
+    return when {
+        hours > 0 && remainingMinutes > 0 -> "${hours}h ${remainingMinutes}m"
+        hours > 0 -> "${hours}h"
+        else -> "${remainingMinutes}m"
+    }
+}
+
+internal object AppLimitGraceSettings {
+    const val MIN_COOLDOWN_MINUTES = 30
+    const val MAX_COOLDOWN_MINUTES = 12 * 60
+    const val COOLDOWN_STEP_MINUTES = 15
+    const val DEFAULT_COOLDOWN_MINUTES = APP_LIMIT_GRACE_COOLDOWN_MINUTES
+    val COOLDOWN_OPTIONS_MINUTES: List<Int> =
+        (MIN_COOLDOWN_MINUTES..MAX_COOLDOWN_MINUTES step COOLDOWN_STEP_MINUTES).toList()
+
+    private const val PREFERENCES_NAME = "timehud_app_limit_grace_settings"
+    private const val KEY_COOLDOWN_MINUTES = "cooldown_minutes"
+
+    fun normalizeCooldownMinutes(cooldownMinutes: Int): Int =
+        if (
+            cooldownMinutes in MIN_COOLDOWN_MINUTES..MAX_COOLDOWN_MINUTES &&
+            (cooldownMinutes - MIN_COOLDOWN_MINUTES) % COOLDOWN_STEP_MINUTES == 0
+        ) {
+            cooldownMinutes
+        } else {
+            DEFAULT_COOLDOWN_MINUTES
+        }
+
+    fun loadCooldownMinutes(context: Context): Int = normalizeCooldownMinutes(
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .getInt(KEY_COOLDOWN_MINUTES, DEFAULT_COOLDOWN_MINUTES)
+    )
+
+    fun saveCooldownMinutes(context: Context, cooldownMinutes: Int) {
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit {
+            putInt(KEY_COOLDOWN_MINUTES, normalizeCooldownMinutes(cooldownMinutes))
+        }
+    }
+}
+
 internal data class AppLimitGraceState(
     val usagePeriodStartMs: Long,
     val normalGraceEndMs: Long = 0L,
@@ -57,14 +101,16 @@ internal object AppLimitGracePolicy {
     fun startNormal(
         usagePeriodStartMs: Long,
         durationMinutes: Int,
-        nowMs: Long
+        nowMs: Long,
+        cooldownMinutes: Int = APP_LIMIT_GRACE_COOLDOWN_MINUTES
     ): AppLimitGraceState {
         require(durationMinutes in APP_LIMIT_GRACE_MINUTES)
+        val effectiveCooldownMinutes = AppLimitGraceSettings.normalizeCooldownMinutes(cooldownMinutes)
         val graceEndMs = nowMs + durationMinutes * MINUTE_MS
         return AppLimitGraceState(
             usagePeriodStartMs = usagePeriodStartMs,
             normalGraceEndMs = graceEndMs,
-            cooldownEndMs = graceEndMs + APP_LIMIT_GRACE_COOLDOWN_MINUTES * MINUTE_MS
+            cooldownEndMs = graceEndMs + effectiveCooldownMinutes * MINUTE_MS
         )
     }
 
@@ -78,18 +124,24 @@ internal object AppLimitGracePolicy {
         )
     }
 
-    fun endActiveGrace(state: AppLimitGraceState, nowMs: Long): AppLimitGraceState =
-        when (val currentStatus = status(state, nowMs)) {
+    fun endActiveGrace(
+        state: AppLimitGraceState,
+        nowMs: Long,
+        cooldownMinutes: Int = APP_LIMIT_GRACE_COOLDOWN_MINUTES
+    ): AppLimitGraceState {
+        val effectiveCooldownMinutes = AppLimitGraceSettings.normalizeCooldownMinutes(cooldownMinutes)
+        return when (val currentStatus = status(state, nowMs)) {
             is AppLimitGraceStatus.Active -> when (currentStatus.kind) {
                 AppLimitGraceKind.NORMAL -> state.copy(
                     normalGraceEndMs = nowMs,
-                    cooldownEndMs = nowMs + APP_LIMIT_GRACE_COOLDOWN_MINUTES * MINUTE_MS
+                    cooldownEndMs = nowMs + effectiveCooldownMinutes * MINUTE_MS
                 )
                 AppLimitGraceKind.EMERGENCY -> state.copy(emergencyGraceEndMs = nowMs)
             }
             AppLimitGraceStatus.NormalAvailable,
             is AppLimitGraceStatus.Cooldown -> state
         }
+    }
 
     fun applyTo(decision: BlockDecision, status: AppLimitGraceStatus): BlockDecision = when {
         status !is AppLimitGraceStatus.Active -> decision
@@ -129,10 +181,12 @@ internal object AppLimitGraceStore {
     fun startNormal(context: Context, durationMinutes: Int, nowMs: Long): AppLimitGraceState {
         val state = load(context, nowMs)
         require(AppLimitGracePolicy.status(state, nowMs) == AppLimitGraceStatus.NormalAvailable)
+        val cooldownMinutes = AppLimitGraceSettings.loadCooldownMinutes(context)
         return AppLimitGracePolicy.startNormal(
             usagePeriodStartMs = state.usagePeriodStartMs,
             durationMinutes = durationMinutes,
-            nowMs = nowMs
+            nowMs = nowMs,
+            cooldownMinutes = cooldownMinutes
         ).also { save(context, it) }
     }
 
@@ -140,9 +194,14 @@ internal object AppLimitGraceStore {
         AppLimitGracePolicy.startEmergency(load(context, nowMs), nowMs)
             .also { save(context, it) }
 
-    fun endActiveGrace(context: Context, nowMs: Long): AppLimitGraceState =
-        AppLimitGracePolicy.endActiveGrace(load(context, nowMs), nowMs)
-            .also { save(context, it) }
+    fun endActiveGrace(context: Context, nowMs: Long): AppLimitGraceState {
+        val cooldownMinutes = AppLimitGraceSettings.loadCooldownMinutes(context)
+        return AppLimitGracePolicy.endActiveGrace(
+            state = load(context, nowMs),
+            nowMs = nowMs,
+            cooldownMinutes = cooldownMinutes
+        ).also { save(context, it) }
+    }
 
     private fun save(context: Context, state: AppLimitGraceState) {
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit {

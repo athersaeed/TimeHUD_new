@@ -29,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +48,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
@@ -63,9 +66,11 @@ import com.boringutils.timehud.R
 import com.boringutils.timehud.ui.theme.TimeHudColors
 import com.boringutils.timehud.blocking.AppBlockRule
 import com.boringutils.timehud.blocking.AppBlockSettings
+import com.boringutils.timehud.blocking.AppLimitGraceSettings
 import com.boringutils.timehud.blocking.AppSurface
 import com.boringutils.timehud.blocking.FACEBOOK_PACKAGE
 import com.boringutils.timehud.blocking.INSTAGRAM_PACKAGE
+import com.boringutils.timehud.blocking.formatGraceCooldownDuration
 import com.boringutils.timehud.blocking.supportedSurfacesFor
 import com.boringutils.timehud.ui.usage.AppUsageLoadResult
 import com.boringutils.timehud.ui.usage.AppUsageRepository
@@ -76,6 +81,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 internal data class BlockableAppUi(
     val packageName: String,
@@ -87,7 +93,8 @@ internal data class BlockableAppUi(
 internal data class AppBlockingUiState(
     val isLoading: Boolean = false,
     val apps: List<BlockableAppUi> = emptyList(),
-    val usagePermissionRequired: Boolean = false
+    val usagePermissionRequired: Boolean = false,
+    val graceCooldownMinutes: Int = AppLimitGraceSettings.DEFAULT_COOLDOWN_MINUTES
 )
 
 internal fun filterBlockableApps(
@@ -104,22 +111,39 @@ internal fun filterBlockableApps(
 }
 
 internal class AppBlockingViewModel(application: Application) : AndroidViewModel(application) {
-    private val _uiState = MutableStateFlow(AppBlockingUiState())
+    private val _uiState = MutableStateFlow(
+        AppBlockingUiState(
+            graceCooldownMinutes = AppLimitGraceSettings.loadCooldownMinutes(application)
+        )
+    )
     val uiState = _uiState.asStateFlow()
     private var refreshJob: Job? = null
 
     fun refresh(usagePermissionGranted: Boolean) {
         refreshJob?.cancel()
+        val graceCooldownMinutes = AppLimitGraceSettings.loadCooldownMinutes(getApplication())
         if (!usagePermissionGranted) {
-            _uiState.value = AppBlockingUiState(usagePermissionRequired = true)
+            _uiState.value = AppBlockingUiState(
+                usagePermissionRequired = true,
+                graceCooldownMinutes = graceCooldownMinutes
+            )
             return
         }
         refreshJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                graceCooldownMinutes = graceCooldownMinutes
+            )
             _uiState.value = withContext(Dispatchers.IO) {
                 loadState()
             }
         }
+    }
+
+    fun setGraceCooldownMinutes(cooldownMinutes: Int) {
+        val normalized = AppLimitGraceSettings.normalizeCooldownMinutes(cooldownMinutes)
+        AppLimitGraceSettings.saveCooldownMinutes(getApplication(), normalized)
+        _uiState.value = _uiState.value.copy(graceCooldownMinutes = normalized)
     }
 
     fun saveRule(rule: AppBlockRule, usagePermissionGranted: Boolean) {
@@ -134,11 +158,13 @@ internal class AppBlockingViewModel(application: Application) : AndroidViewModel
 
     private fun loadState(): AppBlockingUiState {
         val context = getApplication<Application>()
+        val graceCooldownMinutes = AppLimitGraceSettings.loadCooldownMinutes(context)
         val rules = AppBlockSettings.loadRules(context).associateBy { it.packageName }
         val entries = when (val result = AppUsageRepository.load(context)) {
             is AppUsageLoadResult.Success -> result.entries
             AppUsageLoadResult.AccessDenied -> return AppBlockingUiState(
-                usagePermissionRequired = true
+                usagePermissionRequired = true,
+                graceCooldownMinutes = graceCooldownMinutes
             )
             AppUsageLoadResult.Unavailable -> emptyList()
         }
@@ -186,7 +212,8 @@ internal class AppBlockingViewModel(application: Application) : AndroidViewModel
                 compareByDescending<BlockableAppUi> { it.rule != null }
                     .thenByDescending { it.usageMs }
                     .thenBy { it.appName.lowercase() }
-            )
+            ),
+            graceCooldownMinutes = graceCooldownMinutes
         )
     }
 
@@ -261,6 +288,13 @@ internal fun AppBlockingScreen(
             BlockingAccessCard(
                 enabled = accessibilityServiceEnabled,
                 onEnable = { showAccessibilityDisclosure = true }
+            )
+        }
+
+        item {
+            GraceCooldownCard(
+                cooldownMinutes = state.graceCooldownMinutes,
+                onCooldownChange = viewModel::setGraceCooldownMinutes
             )
         }
 
@@ -421,6 +455,100 @@ private fun BlockingAccessCard(enabled: Boolean, onEnable: () -> Unit) {
                 colors = ButtonDefaults.buttonColors(containerColor = TimeHudColors.action)
             ) {
                 Text(stringResource(R.string.app_blocking_enable_access))
+            }
+        }
+    }
+}
+
+@Composable
+private fun GraceCooldownCard(
+    cooldownMinutes: Int,
+    onCooldownChange: (Int) -> Unit
+) {
+    val options = AppLimitGraceSettings.COOLDOWN_OPTIONS_MINUTES
+    val currentIndex = options.indexOf(cooldownMinutes).coerceAtLeast(0)
+    val sliderDescription = stringResource(R.string.app_blocking_grace_cooldown_slider_description)
+    val decreaseDescription = stringResource(R.string.app_blocking_grace_cooldown_decrease_description)
+    val increaseDescription = stringResource(R.string.app_blocking_grace_cooldown_increase_description)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(TimeHudColors.surface)
+            .padding(18.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.app_blocking_grace_cooldown_title),
+                modifier = Modifier.weight(1f),
+                color = TimeHudColors.textPrimary,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = formatGraceCooldownDuration(cooldownMinutes),
+                color = TimeHudColors.textEmphasis,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.app_blocking_grace_cooldown_description),
+            color = TimeHudColors.textSecondary,
+            fontSize = 13.sp
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Slider(
+            value = currentIndex.toFloat(),
+            onValueChange = { value ->
+                onCooldownChange(options[value.roundToInt().coerceIn(options.indices)])
+            },
+            valueRange = 0f..options.lastIndex.toFloat(),
+            steps = options.size - 2,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = sliderDescription }
+        )
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = stringResource(R.string.app_blocking_grace_cooldown_min),
+                modifier = Modifier.weight(1f),
+                fontSize = 11.sp,
+                color = TimeHudColors.textSecondary
+            )
+            Text(
+                text = stringResource(R.string.app_blocking_grace_cooldown_max),
+                fontSize = 11.sp,
+                color = TimeHudColors.textSecondary
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            OutlinedButton(
+                onClick = { onCooldownChange(options[currentIndex - 1]) },
+                enabled = currentIndex > 0,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { contentDescription = decreaseDescription }
+            ) {
+                Text(stringResource(R.string.app_blocking_grace_cooldown_decrease))
+            }
+            OutlinedButton(
+                onClick = { onCooldownChange(options[currentIndex + 1]) },
+                enabled = currentIndex < options.lastIndex,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { contentDescription = increaseDescription }
+            ) {
+                Text(stringResource(R.string.app_blocking_grace_cooldown_increase))
             }
         }
     }

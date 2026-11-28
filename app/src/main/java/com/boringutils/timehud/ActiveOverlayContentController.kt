@@ -20,6 +20,7 @@ import com.boringutils.timehud.blocking.BrickModeSchedulePolicy
 import com.boringutils.timehud.blocking.BrickModeSettings
 import com.boringutils.timehud.blocking.UsageRestrictionMode
 import com.boringutils.timehud.blocking.UsageRestrictionPolicy
+import com.boringutils.timehud.blocking.formatGraceCooldownDuration
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -276,11 +277,20 @@ internal class ActiveOverlayContentController(
         val remainingMinutes = controls.cooldownRemainingMs
             ?.let { ((it + 59_999L) / 60_000L).coerceAtLeast(1L) }
             ?: 1L
-        cooldownStatus?.text = context.resources.getQuantityString(
-            R.plurals.app_limit_grace_cooldown,
-            remainingMinutes.toInt(),
-            remainingMinutes
-        )
+        cooldownStatus?.text = if (remainingMinutes >= 60L) {
+            context.getString(
+                R.string.app_limit_grace_cooldown_formatted,
+                formatGraceCooldownDuration(
+                    remainingMinutes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                )
+            )
+        } else {
+            context.resources.getQuantityString(
+                R.plurals.app_limit_grace_cooldown,
+                remainingMinutes.toInt(),
+                remainingMinutes
+            )
+        }
         emergencyButton?.apply {
             visibility = if (controls.emergencyAvailable) View.VISIBLE else View.GONE
             setOnClickListener { controls.onStartEmergency?.invoke() }

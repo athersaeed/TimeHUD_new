@@ -255,6 +255,75 @@ class AppBlockingTest {
     }
 
     @Test
+    fun grace_cooldown_options_cover_30m_to_12h_in_15m_steps() {
+        val options = AppLimitGraceSettings.COOLDOWN_OPTIONS_MINUTES
+        assertEquals(47, options.size)
+        assertEquals(30, options.first())
+        assertEquals(45, options[1])
+        assertEquals(60, options[2])
+        assertEquals(75, options[3])
+        assertEquals(720, options.last())
+        assertTrue(options.zipWithNext().all { (a, b) -> b - a == 15 })
+    }
+
+    @Test
+    fun grace_cooldown_normalization_accepts_valid_steps_and_falls_back_to_default() {
+        assertEquals(30, AppLimitGraceSettings.normalizeCooldownMinutes(30))
+        assertEquals(45, AppLimitGraceSettings.normalizeCooldownMinutes(45))
+        assertEquals(60, AppLimitGraceSettings.normalizeCooldownMinutes(60))
+        assertEquals(75, AppLimitGraceSettings.normalizeCooldownMinutes(75))
+        assertEquals(720, AppLimitGraceSettings.normalizeCooldownMinutes(720))
+
+        assertEquals(30, AppLimitGraceSettings.normalizeCooldownMinutes(0))
+        assertEquals(30, AppLimitGraceSettings.normalizeCooldownMinutes(15))
+        assertEquals(30, AppLimitGraceSettings.normalizeCooldownMinutes(31))
+        assertEquals(30, AppLimitGraceSettings.normalizeCooldownMinutes(735))
+        assertEquals(30, AppLimitGraceSettings.normalizeCooldownMinutes(-45))
+    }
+
+    @Test
+    fun grace_cooldown_duration_formats_minutes_and_hours() {
+        assertEquals("30m", formatGraceCooldownDuration(30))
+        assertEquals("45m", formatGraceCooldownDuration(45))
+        assertEquals("1h", formatGraceCooldownDuration(60))
+        assertEquals("1h 15m", formatGraceCooldownDuration(75))
+        assertEquals("12h", formatGraceCooldownDuration(720))
+    }
+
+    @Test
+    fun normal_grace_and_early_end_use_configured_cooldown_duration() {
+        val nowMs = 3_000_000L
+        val normalState = AppLimitGracePolicy.startNormal(
+            usagePeriodStartMs = 0L,
+            durationMinutes = 10,
+            nowMs = nowMs,
+            cooldownMinutes = 75
+        )
+        val afterNormalMs = nowMs + 10 * 60_000L
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = afterNormalMs + 75 * 60_000L,
+                emergencyAvailable = true
+            ),
+            AppLimitGracePolicy.status(normalState, afterNormalMs)
+        )
+
+        val endedAtMs = nowMs + 4 * 60_000L
+        val endedState = AppLimitGracePolicy.endActiveGrace(
+            state = normalState,
+            nowMs = endedAtMs,
+            cooldownMinutes = 720
+        )
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = endedAtMs + 720 * 60_000L,
+                emergencyAvailable = true
+            ),
+            AppLimitGracePolicy.status(endedState, endedAtMs)
+        )
+    }
+
+    @Test
     fun screenshot_apps_expose_the_expected_options() {
         assertEquals(
             listOf(
