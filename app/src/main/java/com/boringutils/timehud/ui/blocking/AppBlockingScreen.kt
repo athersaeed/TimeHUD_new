@@ -498,7 +498,13 @@ private fun GraceCooldownCard(
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = stringResource(R.string.app_blocking_grace_cooldown_description),
+            text = stringResource(
+                if (cooldownMinutes > AppLimitGraceSettings.MIN_COOLDOWN_MINUTES) {
+                    R.string.app_blocking_grace_cooldown_description_with_recurring_emergency
+                } else {
+                    R.string.app_blocking_grace_cooldown_description
+                }
+            ),
             color = TimeHudColors.textSecondary,
             fontSize = 13.sp
         )

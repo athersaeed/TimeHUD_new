@@ -324,6 +324,176 @@ class AppBlockingTest {
     }
 
     @Test
+    fun cooldown_longer_than_30m_recharges_emergency_grace_every_30m() {
+        val nowMs = 4_000_000L
+        val normalState = AppLimitGracePolicy.startNormal(
+            usagePeriodStartMs = 0L,
+            durationMinutes = 10,
+            nowMs = nowMs,
+            cooldownMinutes = 75
+        )
+        val cooldownStartMs = nowMs + 10 * 60_000L
+        val cooldownEndMs = cooldownStartMs + 75 * 60_000L
+
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = cooldownEndMs,
+                emergencyAvailable = true,
+                nextEmergencyAtMs = null
+            ),
+            AppLimitGracePolicy.status(normalState, cooldownStartMs)
+        )
+
+        val emergency1State = AppLimitGracePolicy.startEmergency(normalState, cooldownStartMs)
+        val emergency1EndMs = cooldownStartMs + 3 * 60_000L
+        val nextEmergency1AtMs = emergency1EndMs + 30 * 60_000L
+        assertEquals(
+            AppLimitGraceStatus.Active(AppLimitGraceKind.EMERGENCY, emergency1EndMs),
+            AppLimitGracePolicy.status(emergency1State, cooldownStartMs)
+        )
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = cooldownEndMs,
+                emergencyAvailable = false,
+                nextEmergencyAtMs = nextEmergency1AtMs
+            ),
+            AppLimitGracePolicy.status(emergency1State, emergency1EndMs)
+        )
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = cooldownEndMs,
+                emergencyAvailable = false,
+                nextEmergencyAtMs = nextEmergency1AtMs
+            ),
+            AppLimitGracePolicy.status(emergency1State, nextEmergency1AtMs - 1L)
+        )
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = cooldownEndMs,
+                emergencyAvailable = true,
+                nextEmergencyAtMs = null
+            ),
+            AppLimitGracePolicy.status(emergency1State, nextEmergency1AtMs)
+        )
+
+        val emergency2State = AppLimitGracePolicy.startEmergency(emergency1State, nextEmergency1AtMs)
+        val emergency2EndMs = nextEmergency1AtMs + 3 * 60_000L
+        val nextEmergency2AtMs = emergency2EndMs + 30 * 60_000L
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = cooldownEndMs,
+                emergencyAvailable = true,
+                nextEmergencyAtMs = null
+            ),
+            AppLimitGracePolicy.status(emergency2State, nextEmergency2AtMs)
+        )
+
+        val emergency3State = AppLimitGracePolicy.startEmergency(emergency2State, nextEmergency2AtMs)
+        val emergency3EndMs = nextEmergency2AtMs + 3 * 60_000L
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = cooldownEndMs,
+                emergencyAvailable = false,
+                nextEmergencyAtMs = null
+            ),
+            AppLimitGracePolicy.status(emergency3State, emergency3EndMs)
+        )
+        assertEquals(
+            AppLimitGraceStatus.NormalAvailable,
+            AppLimitGracePolicy.status(emergency3State, cooldownEndMs)
+        )
+    }
+
+    @Test
+    fun ending_emergency_grace_early_starts_30m_emergency_cooldown_from_end_time() {
+        val nowMs = 5_000_000L
+        val normalState = AppLimitGracePolicy.startNormal(
+            usagePeriodStartMs = 0L,
+            durationMinutes = 5,
+            nowMs = nowMs,
+            cooldownMinutes = 60
+        )
+        val cooldownStartMs = nowMs + 5 * 60_000L
+        val cooldownEndMs = cooldownStartMs + 60 * 60_000L
+        val emergencyState = AppLimitGracePolicy.startEmergency(normalState, cooldownStartMs)
+
+        val endedEarlyAtMs = cooldownStartMs + 60_000L
+        val endedState = AppLimitGracePolicy.endActiveGrace(emergencyState, endedEarlyAtMs)
+        val nextEmergencyAtMs = endedEarlyAtMs + 30 * 60_000L
+
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = cooldownEndMs,
+                emergencyAvailable = false,
+                nextEmergencyAtMs = nextEmergencyAtMs
+            ),
+            AppLimitGracePolicy.status(endedState, endedEarlyAtMs)
+        )
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = cooldownEndMs,
+                emergencyAvailable = true,
+                nextEmergencyAtMs = null
+            ),
+            AppLimitGracePolicy.status(endedState, nextEmergencyAtMs)
+        )
+    }
+
+    @Test
+    fun thirty_minute_cooldown_still_allows_only_one_emergency_grace_even_if_ended_early() {
+        val nowMs = 6_000_000L
+        val normalState = AppLimitGracePolicy.startNormal(
+            usagePeriodStartMs = 0L,
+            durationMinutes = 5,
+            nowMs = nowMs,
+            cooldownMinutes = 30
+        )
+        val cooldownStartMs = nowMs + 5 * 60_000L
+        val cooldownEndMs = cooldownStartMs + 30 * 60_000L
+        val emergencyState = AppLimitGracePolicy.startEmergency(normalState, cooldownStartMs)
+
+        val endedEarlyAtMs = cooldownStartMs + 30_000L
+        val endedState = AppLimitGracePolicy.endActiveGrace(emergencyState, endedEarlyAtMs)
+        assertEquals(
+            AppLimitGraceStatus.Cooldown(
+                endMs = cooldownEndMs,
+                emergencyAvailable = false,
+                nextEmergencyAtMs = null
+            ),
+            AppLimitGracePolicy.status(endedState, cooldownEndMs - 1L)
+        )
+        assertEquals(
+            AppLimitGraceStatus.NormalAvailable,
+            AppLimitGracePolicy.status(endedState, cooldownEndMs)
+        )
+    }
+
+    @Test
+    fun emergency_grace_started_near_end_of_cooldown_finishes_then_unlocks_normal_grace() {
+        val nowMs = 7_000_000L
+        val normalState = AppLimitGracePolicy.startNormal(
+            usagePeriodStartMs = 0L,
+            durationMinutes = 5,
+            nowMs = nowMs,
+            cooldownMinutes = 45
+        )
+        val cooldownStartMs = nowMs + 5 * 60_000L
+        val cooldownEndMs = cooldownStartMs + 45 * 60_000L
+        val nearEndMs = cooldownEndMs - 60_000L
+        val emergencyState = AppLimitGracePolicy.startEmergency(normalState, nearEndMs)
+        val emergencyEndMs = nearEndMs + 3 * 60_000L
+
+        assertEquals(
+            AppLimitGraceStatus.Active(AppLimitGraceKind.EMERGENCY, emergencyEndMs),
+            AppLimitGracePolicy.status(emergencyState, cooldownEndMs)
+        )
+        assertEquals(
+            AppLimitGraceStatus.NormalAvailable,
+            AppLimitGracePolicy.status(emergencyState, emergencyEndMs)
+        )
+    }
+
+    @Test
     fun screenshot_apps_expose_the_expected_options() {
         assertEquals(
             listOf(

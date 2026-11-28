@@ -162,6 +162,7 @@
     <string name="app_limit_grace_cooldown_formatted">Normal grace is available again in about %1$s.</string>
     <string name="app_blocking_grace_cooldown_title">Grace cooldown</string>
     <string name="app_blocking_grace_cooldown_description">Wait time after a grace period before normal grace is available again. Changes apply to future grace periods.</string>
+    <string name="app_blocking_grace_cooldown_description_with_recurring_emergency">Wait time after a grace period before normal grace is available again. A 3-minute emergency grace is available every 30 minutes during cooldown. Changes apply to future grace periods.</string>
     <string name="app_blocking_grace_cooldown_slider_description">Choose grace-period cooldown duration</string>
     <string name="app_blocking_grace_cooldown_min">30m</string>
     <string name="app_blocking_grace_cooldown_max">12h</string>
@@ -169,7 +170,11 @@
     <string name="app_blocking_grace_cooldown_increase">+15m</string>
     <string name="app_blocking_grace_cooldown_decrease_description">Decrease grace cooldown by 15 minutes</string>
     <string name="app_blocking_grace_cooldown_increase_description">Increase grace cooldown by 15 minutes</string>
-    <string name="app_limit_emergency_grace_start">Use one 3-minute emergency grace</string>
+    <string name="app_limit_emergency_grace_start">Use 3-minute emergency grace</string>
+    <plurals name="app_limit_emergency_grace_cooldown">
+        <item quantity="one">Next 3-minute emergency grace in about %1$d minute.</item>
+        <item quantity="other">Next 3-minute emergency grace in about %1$d minutes.</item>
+    </plurals>
     <string name="app_limit_grace_countdown">Grace %1$s · End</string>
     <string name="app_limit_grace_countdown_description">Grace-period time remaining. Tap to end grace now.</string>
     <string name="brick_mode_heading">Usage restrictions</string>

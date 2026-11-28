@@ -35,6 +35,7 @@ internal data class AppLimitGraceControls(
     val optionsMinutes: List<Int> = emptyList(),
     val cooldownRemainingMs: Long? = null,
     val emergencyAvailable: Boolean = false,
+    val nextEmergencyRemainingMs: Long? = null,
     val onStartNormal: ((Int) -> Unit)? = null,
     val onStartEmergency: (() -> Unit)? = null
 )
@@ -277,7 +278,7 @@ internal class ActiveOverlayContentController(
         val remainingMinutes = controls.cooldownRemainingMs
             ?.let { ((it + 59_999L) / 60_000L).coerceAtLeast(1L) }
             ?: 1L
-        cooldownStatus?.text = if (remainingMinutes >= 60L) {
+        val cooldownText = if (remainingMinutes >= 60L) {
             context.getString(
                 R.string.app_limit_grace_cooldown_formatted,
                 formatGraceCooldownDuration(
@@ -290,6 +291,18 @@ internal class ActiveOverlayContentController(
                 remainingMinutes.toInt(),
                 remainingMinutes
             )
+        }
+        val nextEmergencyMinutes = controls.nextEmergencyRemainingMs
+            ?.takeIf { !controls.emergencyAvailable && it > 0L }
+            ?.let { ((it + 59_999L) / 60_000L).coerceAtLeast(1L) }
+        cooldownStatus?.text = if (nextEmergencyMinutes != null) {
+            "$cooldownText\n" + context.resources.getQuantityString(
+                R.plurals.app_limit_emergency_grace_cooldown,
+                nextEmergencyMinutes.toInt(),
+                nextEmergencyMinutes
+            )
+        } else {
+            cooldownText
         }
         emergencyButton?.apply {
             visibility = if (controls.emergencyAvailable) View.VISIBLE else View.GONE

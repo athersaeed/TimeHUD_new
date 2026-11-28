@@ -533,7 +533,12 @@ class TimeHudAccessibilityService : AccessibilityService() {
             ?.takeIf { it > 0L }
         val graceBoundaryRemainingMs = when (graceStatus) {
             is AppLimitGraceStatus.Active -> graceStatus.endMs - nowWallMs
-            is AppLimitGraceStatus.Cooldown -> graceStatus.endMs - nowWallMs
+            is AppLimitGraceStatus.Cooldown -> {
+                val nextBoundaryAtMs = graceStatus.nextEmergencyAtMs
+                    ?.takeIf { it < graceStatus.endMs }
+                    ?: graceStatus.endMs
+                nextBoundaryAtMs - nowWallMs
+            }
             AppLimitGraceStatus.NormalAvailable -> null
         }?.takeIf { it > 0L }
         val nextBoundaryMs = listOfNotNull(
@@ -1061,11 +1066,15 @@ private class BlockingOverlayController(
                 optionsMinutes = APP_LIMIT_GRACE_MINUTES,
                 onStartNormal = onStartNormalGrace
             )
-            is AppLimitGraceStatus.Cooldown -> AppLimitGraceControls(
-                cooldownRemainingMs = endMs - System.currentTimeMillis(),
-                emergencyAvailable = emergencyAvailable,
-                onStartEmergency = onStartEmergencyGrace
-            )
+            is AppLimitGraceStatus.Cooldown -> {
+                val nowMs = System.currentTimeMillis()
+                AppLimitGraceControls(
+                    cooldownRemainingMs = endMs - nowMs,
+                    emergencyAvailable = emergencyAvailable,
+                    nextEmergencyRemainingMs = nextEmergencyAtMs?.let { it - nowMs },
+                    onStartEmergency = onStartEmergencyGrace
+                )
+            }
             is AppLimitGraceStatus.Active -> null
         }
     }
@@ -1073,7 +1082,7 @@ private class BlockingOverlayController(
     private fun AppLimitGraceStatus.uiSignature(): String = when (this) {
         AppLimitGraceStatus.NormalAvailable -> "normal"
         is AppLimitGraceStatus.Active -> "active:$kind:$endMs"
-        is AppLimitGraceStatus.Cooldown -> "cooldown:$endMs:$emergencyAvailable"
+        is AppLimitGraceStatus.Cooldown -> "cooldown:$endMs:$emergencyAvailable:$nextEmergencyAtMs"
     }
 
     private fun showGraceCountdown(endMs: Long) {
