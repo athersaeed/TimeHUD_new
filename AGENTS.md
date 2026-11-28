@@ -1,5 +1,13 @@
 # AGENTS.md — TimeHUD Repository Instructions
 
+## Active checkout location
+
+The canonical development checkout on this machine is:
+
+`/home/syedathersaeed/Downloads/Career/Hackathon/hack-to-the-future/TimeHUD_cloud`
+
+Before app edits, builds, tests, commits, or pushes, verify that `git rev-parse --show-toplevel` resolves to this path and use it as the working directory. `/home/syedathersaeed/Documents/ChatGPT/TimeHUD` and its nested release snapshot are archived copies, not development fallbacks. If the canonical checkout is inaccessible, report the access problem rather than editing an archived copy. An explicit user request for an isolated checkout or archive maintenance can override this default.
+
 These instructions apply to the entire repository. They are the default operating context for Codex and other coding agents working on TimeHUD.
 
 `PROJECT_CONTEXT.md` contains the detailed source audit. Read it when a task affects runtime behavior, architecture, permissions, persistence, release configuration, or an unfamiliar subsystem. The checked-in source is always authoritative if documentation and code disagree.
